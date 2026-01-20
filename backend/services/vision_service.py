@@ -2,6 +2,8 @@ import os
 import base64
 import json
 import mimetypes
+from PIL import Image
+import pillow_avif
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -23,15 +25,14 @@ def encode_image(image_path):
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 async def analyze_food_image(image_path, user_context_str):
+    converted_path = None
     try:
-        base64_image = encode_image(image_path)
-        user_context = json.loads(user_context_str)
+        # Detect extension and handle format conversion if necessary
+        ext = os.path.splitext(image_path)[1].lower()
 
-        # Detect MIME type
+        # Initial MIME type detection for format-specific logic
         mime_type, _ = mimetypes.guess_type(image_path)
         if not mime_type:
-            # Fallback for common image types if mimetypes fails (e.g. .webp on some systems)
-            ext = os.path.splitext(image_path)[1].lower()
             mime_map = {
                 '.webp': 'image/webp',
                 '.png': 'image/png',
@@ -41,7 +42,24 @@ async def analyze_food_image(image_path, user_context_str):
                 '.bmp': 'image/bmp',
                 '.avif': 'image/avif'
             }
-            mime_type = mime_map.get(ext, "image/jpeg")  # Default fallback
+            mime_type = mime_map.get(ext, "image/jpeg")
+
+        # DashScope/Qwen-VL might not support AVIF directly, convert to JPEG
+        if ext == '.avif' or mime_type == 'image/avif':
+            print(f"Converting AVIF to JPEG: {image_path}")
+            try:
+                img = Image.open(image_path)
+                converted_path = image_path.rsplit('.', 1)[0] + "_converted.jpg"
+                img.convert("RGB").save(converted_path, "JPEG", quality=95)
+                image_path = converted_path
+                mime_type = "image/jpeg"
+                print(f"Successfully converted AVIF to JPEG: {converted_path}")
+            except Exception as conv_err:
+                print(f"AVIF conversion failed: {conv_err}")
+                # Fallback to original and let the API decide
+
+        base64_image = encode_image(image_path)
+        user_context = json.loads(user_context_str)
 
         print(f"Analyzing image: {image_path}, Detected MIME: {mime_type}")
 
@@ -126,3 +144,11 @@ async def analyze_food_image(image_path, user_context_str):
                 "confidence": 0
             }
         }
+    finally:
+        # Clean up temporary converted file if it exists
+        if converted_path and os.path.exists(converted_path):
+            try:
+                os.remove(converted_path)
+                print(f"Cleaned up converted file: {converted_path}")
+            except Exception as cleanup_err:
+                print(f"Error cleaning up {converted_path}: {cleanup_err}")

@@ -27,3 +27,8 @@ unpackage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Internal and Docs
+.claude/
+CLAUDE.md
+PRD.md
