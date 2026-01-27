@@ -23,7 +23,8 @@
       :visible="showOverlay"
       :loading="loading"
       :result="analysisResult"
-      @close="closeOverlay"
+      @save="handleSave"
+      @discard="handleDiscard"
     />
 
     <!-- Bottom Navigation -->
@@ -58,6 +59,9 @@ const clickCount = ref(0);
 // Dynamic Mock Data for Demo
 const getMockResult = (goal) => {
   const baseResult = {
+    main_name: "烤鸡胸肉沙拉",
+    total_calories: 350,
+    total_traffic_light: "green",
     thought_process: "识别出这是一份烤鸡胸肉沙拉，包含生菜、圣女果和玉米粒。",
     items: [
       {
@@ -148,10 +152,19 @@ const processImage = async (path) => {
 const finishAnalysis = (result) => {
   analysisResult.value = result;
   loading.value = false;
+  // removed auto-save
+};
+
+const handleSave = () => {
   userStore.addHistoryEntry({
     image: capturedImage.value,
-    result: result
+    result: analysisResult.value
   });
+  closeOverlay();
+};
+
+const handleDiscard = () => {
+  closeOverlay();
 };
 
 const closeOverlay = () => {

@@ -72,6 +72,10 @@ async def analyze_food_image(image_path, user_context_str):
 
         User Profile:
         - Age: {user_context.get('age')}
+        - Gender: {user_context.get('gender', 'Not specified')}
+        - Height: {user_context.get('height', 'Not specified')} cm
+        - Weight: {user_context.get('weight', 'Not specified')} kg
+        - Activity Level: {user_context.get('activity_level', 'Not specified')}
         - Goal: {user_context.get('goal')}
         - Health Conditions: {', '.join(user_context.get('health_conditions', []))}
 
@@ -87,9 +91,16 @@ async def analyze_food_image(image_path, user_context_str):
            - RED: Direct conflict with health conditions or goal (e.g., sugary drink for Diabetic).
            - YELLOW: Borderline or requires strict portion control.
            - GREEN: Highly recommended and safe.
+        5. Global Calculation:
+           - Calculate 'total_calories' by summing up the calories of all identified items.
+           - Generate a 'main_name' that describes the entire meal (e.g., "Avocado Salmon Salad").
+           - Determine a 'total_traffic_light' based on the overall health impact.
 
         Output Format (STRICT JSON):
         {{
+            "main_name": "Overall Dish Name (Chinese)",
+            "total_calories": 0,
+            "total_traffic_light": "green/yellow/red",
             "thought_process": "Brief step-by-step reasoning in Chinese",
             "items": [
                 {{

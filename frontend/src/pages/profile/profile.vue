@@ -9,6 +9,23 @@
       <view class="section-title">基本信息</view>
       <view class="list-group">
         <view class="list-item">
+          <text class="item-label">性别</text>
+          <picker
+            @change="handleGenderChange"
+            :value="genders.findIndex(g => g.value === profile.gender)"
+            :range="genders"
+            range-key="label"
+            class="picker-container"
+          >
+            <view class="picker-content">
+              <text class="picker-value">{{ currentGenderLabel }}</text>
+              <text class="chevron">›</text>
+            </view>
+          </picker>
+        </view>
+        <view class="list-divider"></view>
+
+        <view class="list-item">
           <text class="item-label">年龄</text>
           <input
             class="item-input"
@@ -19,6 +36,48 @@
           />
         </view>
         <view class="list-divider"></view>
+
+        <view class="list-item">
+          <text class="item-label">身高 (cm)</text>
+          <input
+            class="item-input"
+            type="number"
+            v-model="profile.height"
+            @blur="saveProfile"
+            placeholder="cm"
+          />
+        </view>
+        <view class="list-divider"></view>
+
+        <view class="list-item">
+          <text class="item-label">体重 (kg)</text>
+          <input
+            class="item-input"
+            type="number"
+            v-model="profile.weight"
+            @blur="saveProfile"
+            placeholder="kg"
+          />
+        </view>
+        <view class="list-divider"></view>
+
+        <view class="list-item">
+          <text class="item-label">活动量</text>
+          <picker
+            @change="handleActivityChange"
+            :value="activityLevels.findIndex(a => a.value === profile.activity_level)"
+            :range="activityLevels"
+            range-key="label"
+            class="picker-container"
+          >
+            <view class="picker-content">
+              <text class="picker-value">{{ currentActivityLabel }}</text>
+              <text class="chevron">›</text>
+            </view>
+          </picker>
+        </view>
+        <view class="list-divider"></view>
+
         <view class="list-item">
           <text class="item-label">饮食目标</text>
           <picker
@@ -44,6 +103,7 @@
         </view>
         <view class="list-divider"></view>
         <view class="conditions-container">
+          <!-- Preset Conditions -->
           <view
             v-for="condition in healthConditions"
             :key="condition.value"
@@ -52,6 +112,33 @@
             @tap="toggleCondition(condition.value)"
           >
             {{ condition.label }}
+          </view>
+
+          <!-- Custom Conditions -->
+          <view
+            v-for="condition in customConditionsList"
+            :key="condition"
+            class="chip active"
+            @tap="removeCustomCondition(condition)"
+          >
+            {{ condition }} <text class="chip-remove">×</text>
+          </view>
+        </view>
+
+        <view class="list-divider"></view>
+
+        <!-- Add Custom Condition -->
+        <view class="list-item custom-input-row">
+           <input
+            class="custom-input"
+            type="text"
+            v-model="customCondition"
+            placeholder="添加其他 (如: 海鲜过敏)"
+            confirm-type="done"
+            @confirm="addCustomCondition"
+          />
+          <view class="add-btn" @tap="addCustomCondition" :class="{ disabled: !customCondition.trim() }">
+            添加
           </view>
         </view>
       </view>
@@ -66,7 +153,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useUserStore } from '@/store/user';
 import { storeToRefs } from 'pinia';
 import BottomNav from '@/components/BottomNav.vue';
@@ -74,11 +161,27 @@ import BottomNav from '@/components/BottomNav.vue';
 const userStore = useUserStore();
 const { profile } = storeToRefs(userStore);
 
+const customCondition = ref('');
+
 const goals = [
   { label: '增肌', value: 'muscle_gain' },
   { label: '减脂', value: 'weight_loss' },
   { label: '健康饮食', value: 'healthy_eat' },
   { label: '糖尿病管理', value: 'diabetes' }
+];
+
+const genders = [
+  { label: '男', value: 'male' },
+  { label: '女', value: 'female' },
+  { label: '其他', value: 'other' }
+];
+
+const activityLevels = [
+  { label: '久坐不动', value: 'sedentary' },
+  { label: '轻度活动', value: 'lightly_active' },
+  { label: '中度活动', value: 'moderately_active' },
+  { label: '非常活跃', value: 'very_active' },
+  { label: '极度活跃', value: 'extra_active' }
 ];
 
 const healthConditions = [
@@ -95,9 +198,31 @@ const currentGoalLabel = computed(() => {
   return goal ? goal.label : '选择目标';
 });
 
+const currentGenderLabel = computed(() => {
+  const g = genders.find(i => i.value === profile.value.gender);
+  return g ? g.label : '请选择';
+});
+
+const currentActivityLabel = computed(() => {
+  const a = activityLevels.find(i => i.value === profile.value.activity_level);
+  return a ? a.label : '请选择';
+});
+
 const handleGoalChange = (e) => {
   const index = e.detail.value;
   profile.value.goal = goals[index].value;
+  saveProfile();
+};
+
+const handleGenderChange = (e) => {
+  const index = e.detail.value;
+  profile.value.gender = genders[index].value;
+  saveProfile();
+};
+
+const handleActivityChange = (e) => {
+  const index = e.detail.value;
+  profile.value.activity_level = activityLevels[index].value;
   saveProfile();
 };
 
@@ -109,6 +234,29 @@ const toggleCondition = (value) => {
     profile.value.health_conditions.push(value);
   }
   saveProfile();
+};
+
+const addCustomCondition = () => {
+  const val = customCondition.value.trim();
+  if (val && !profile.value.health_conditions.includes(val)) {
+    profile.value.health_conditions.push(val);
+    saveProfile();
+  }
+  customCondition.value = '';
+};
+
+// Identify which conditions are custom (not in the preset list)
+const customConditionsList = computed(() => {
+  const presetValues = healthConditions.map(c => c.value);
+  return profile.value.health_conditions.filter(c => !presetValues.includes(c));
+});
+
+const removeCustomCondition = (val) => {
+  const index = profile.value.health_conditions.indexOf(val);
+  if (index > -1) {
+    profile.value.health_conditions.splice(index, 1);
+    saveProfile();
+  }
 };
 
 const saveProfile = () => {
@@ -223,6 +371,44 @@ const saveProfile = () => {
     background: #007aff;
     color: #fff;
     box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
+  }
+}
+
+.chip-remove {
+  margin-left: 4px;
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+.custom-input-row {
+  display: flex;
+  align-items: center;
+}
+
+.custom-input {
+  flex: 1;
+  font-size: 16px;
+  color: #1d1d1f;
+  height: 40px;
+}
+
+.add-btn {
+  margin-left: 12px;
+  padding: 6px 12px;
+  background-color: #007aff;
+  color: white;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s;
+
+  &.disabled {
+    opacity: 0.3;
+    background-color: #8e8e93;
+  }
+
+  &:active {
+    opacity: 0.7;
   }
 }
 

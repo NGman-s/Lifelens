@@ -19,17 +19,17 @@
           <text class="empty-text">暂无记录</text>
         </view>
 
-        <view v-for="entry in history" :key="entry.id" class="history-card">
+        <view v-for="entry in history" :key="entry.id" class="history-card" @longpress="handleLongPress(entry)">
           <image :src="entry.image" mode="aspectFill" class="card-image"></image>
           <view class="card-content">
             <view class="card-header">
-              <text class="card-title">{{ entry.result.items[0]?.name || '未知菜品' }}</text>
+              <text class="card-title">{{ entry.result.main_name || entry.result.items[0]?.name || '未知菜品' }}</text>
               <text class="card-time">{{ formatDate(entry.timestamp) }}</text>
             </view>
             <view class="card-summary">{{ entry.result.total_analysis.summary }}</view>
             <view class="card-footer">
-               <view class="traffic-dot" :class="entry.result.items[0]?.traffic_light"></view>
-               <text class="calories-text">{{ entry.result.items[0]?.calories }} kcal</text>
+               <view class="traffic-dot" :class="entry.result.total_traffic_light || entry.result.items[0]?.traffic_light"></view>
+               <text class="calories-text">{{ entry.result.total_calories || entry.result.items[0]?.calories }} kcal</text>
             </view>
           </view>
         </view>
@@ -63,6 +63,22 @@ const handleClear = () => {
     success: (res) => {
       if (res.confirm) {
         userStore.clearHistory();
+      }
+    }
+  });
+};
+
+const handleLongPress = (entry) => {
+  uni.showActionSheet({
+    itemList: ['删除此记录'],
+    itemColor: '#FF3B30',
+    success: (res) => {
+      if (res.tapIndex === 0) {
+        userStore.deleteHistoryEntry(entry.id);
+        uni.showToast({
+          title: '已删除',
+          icon: 'none'
+        });
       }
     }
   });

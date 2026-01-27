@@ -22,15 +22,15 @@
         <!-- Header Section -->
         <view class="result-header">
           <view class="title-row">
-            <text class="dish-name">{{ result.items[0]?.name || '识别结果' }}</text>
-            <view class="traffic-badge" :class="result.items[0]?.traffic_light">
-              {{ getTrafficLightLabel(result.items[0]?.traffic_light) }}
+            <text class="dish-name">{{ result.main_name || result.items[0]?.name || '识别结果' }}</text>
+            <view class="traffic-badge" :class="result.total_traffic_light || result.items[0]?.traffic_light">
+              {{ getTrafficLightLabel(result.total_traffic_light || result.items[0]?.traffic_light) }}
             </view>
           </view>
 
           <view class="nutrition-row">
             <view class="nutrition-item">
-              <text class="nutri-value">{{ result.items[0]?.calories || 0 }}</text>
+              <text class="nutri-value">{{ result.total_calories || result.items[0]?.calories || 0 }}</text>
               <text class="nutri-unit">kcal</text>
               <text class="nutri-label">热量</text>
             </view>
@@ -68,9 +68,10 @@
           <view class="thought-text">{{ result.thought_process }}</view>
         </view>
 
-        <!-- Action Button -->
-        <view class="action-area">
-          <button class="btn-primary full-width" @tap="$emit('close')">完成</button>
+        <!-- Action Buttons -->
+        <view class="action-area button-group">
+          <button class="btn-secondary" @tap="$emit('discard')">不保存</button>
+          <button class="btn-primary" @tap="$emit('save')">保存并关闭</button>
         </view>
       </scroll-view>
     </view>
@@ -86,7 +87,7 @@ const props = defineProps({
   result: Object
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['save', 'discard']);
 
 const getTrafficLightLabel = (color) => {
   const map = {
@@ -360,10 +361,33 @@ const getTrafficLightLabel = (color) => {
   padding: 0 24px 24px;
 }
 
-.full-width {
-  width: 100%;
+.button-group {
+  display: flex;
+  gap: 16px;
+}
+
+.btn-secondary {
+  flex: 1;
   height: 50px;
   line-height: 50px;
   font-size: 17px;
+  background-color: #F2F2F7;
+  color: #007AFF;
+  border-radius: 14px; /* Matches iOS default button radius often */
+  font-weight: 600;
+  border: none;
+
+  &:active {
+    opacity: 0.7;
+    background-color: #E5E5EA;
+  }
+}
+
+.btn-primary {
+  flex: 2;
+  height: 50px;
+  line-height: 50px;
+  font-size: 17px;
+  border-radius: 14px;
 }
 </style>

@@ -1,12 +1,18 @@
 import { defineStore } from 'pinia';
 
+const defaultProfile = {
+  age: 25,
+  gender: 'male',
+  height: 170,
+  weight: 65,
+  activity_level: 'sedentary',
+  goal: 'muscle_gain', // muscle_gain, weight_loss, healthy_eat
+  health_conditions: []
+};
+
 export const useUserStore = defineStore('user', {
   state: () => ({
-    profile: uni.getStorageSync('user_profile') || {
-      age: 25,
-      goal: 'muscle_gain', // muscle_gain, weight_loss, healthy_eat
-      health_conditions: []
-    },
+    profile: { ...defaultProfile, ...uni.getStorageSync('user_profile') },
     history: uni.getStorageSync('diet_history') || []
   }),
   getters: {
@@ -39,8 +45,10 @@ export const useUserStore = defineStore('user', {
         const entryDateStr = `${year}-${month}-${day}`;
 
         const dayStat = days.find(d => d.fullDate === entryDateStr);
-        if (dayStat) {
-          if (entry.result && entry.result.items) {
+        if (dayStat && entry.result) {
+          if (entry.result.total_calories) {
+             dayStat.calories += (parseInt(entry.result.total_calories) || 0);
+          } else if (entry.result.items) {
              entry.result.items.forEach(item => {
                dayStat.calories += (parseInt(item.calories) || 0);
              });
@@ -71,6 +79,13 @@ export const useUserStore = defineStore('user', {
     clearHistory() {
       this.history = [];
       uni.setStorageSync('diet_history', []);
+    },
+    deleteHistoryEntry(id) {
+      const index = this.history.findIndex(entry => entry.id === id);
+      if (index !== -1) {
+        this.history.splice(index, 1);
+        uni.setStorageSync('diet_history', this.history);
+      }
     }
   }
 });
