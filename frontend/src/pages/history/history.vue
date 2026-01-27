@@ -20,7 +20,7 @@
         </view>
 
         <view v-for="entry in history" :key="entry.id" class="history-card" @longpress="handleLongPress(entry)">
-          <image :src="entry.image" mode="aspectFill" class="card-image"></image>
+          <image :src="resolveImageUrl(entry.image)" mode="aspectFill" class="card-image"></image>
           <view class="card-content">
             <view class="card-header">
               <text class="card-title">{{ entry.result.main_name || entry.result.items[0]?.name || '未知菜品' }}</text>
@@ -45,9 +45,26 @@ import { useUserStore } from '@/store/user';
 import { storeToRefs } from 'pinia';
 import TrendChart from '@/components/TrendChart.vue';
 import BottomNav from '@/components/BottomNav.vue';
+import { BASE_URL } from '@/utils/request';
 
 const userStore = useUserStore();
 const { history, weeklyStats } = storeToRefs(userStore);
+
+const resolveImageUrl = (path) => {
+  if (!path) return '';
+  // If it's a full URL, blob (local temp), or file path (app private storage), use as is
+  if (path.startsWith('http') || path.startsWith('blob:') || path.startsWith('file:') || path.startsWith('/')) {
+    // Check if it's our relative path format (starts with /uploads) but avoid double-slash if BASE_URL ends with /
+    // However, our BASE_URL is likely http://ip:port or empty string.
+
+    // Actually, simple check: if it looks like a relative path intended for our server (starts with /uploads) AND BASE_URL is set (dev mode)
+    if (path.startsWith('/uploads') && BASE_URL) {
+       return BASE_URL + path;
+    }
+    return path;
+  }
+  return path;
+};
 
 const formatDate = (isoString) => {
   const date = new Date(isoString);

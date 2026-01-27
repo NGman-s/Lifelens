@@ -156,8 +156,10 @@ const finishAnalysis = (result) => {
 };
 
 const handleSave = () => {
+  // Use server URL if available, otherwise fallback to local temp path
+  const imagePath = analysisResult.value?.image_url || capturedImage.value;
   userStore.addHistoryEntry({
-    image: capturedImage.value,
+    image: imagePath,
     result: analysisResult.value
   });
   closeOverlay();

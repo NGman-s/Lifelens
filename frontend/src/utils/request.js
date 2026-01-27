@@ -74,6 +74,8 @@ const uploadFile = (options) => {
   });
 };
 
+export { BASE_URL };
+
 export default {
   request,
   uploadFile
