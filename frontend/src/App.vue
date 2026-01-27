@@ -14,7 +14,7 @@ export default {
 
 <style lang="scss">
 /* Global Styles */
-@use '@/uni.scss' as *;
+@import '@/uni.scss';
 
 page {
   background-color: $uni-bg-color-grey;
