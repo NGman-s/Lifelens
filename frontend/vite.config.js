@@ -5,6 +5,13 @@ export default defineConfig({
   plugins: [
     uni(),
   ],
+  css: {
+    preprocessorOptions: {
+      scss: {
+        silenceDeprecations: ['legacy-js-api', 'import'],
+      },
+    },
+  },
   server: {
     open: false,
     host: '0.0.0.0',
