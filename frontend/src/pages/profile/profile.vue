@@ -276,7 +276,7 @@ const saveProfile = () => {
 
 .header {
   margin-bottom: 24px;
-  padding-top: env(safe-area-inset-top);
+  padding-top: calc(env(safe-area-inset-top) + 20px);
 }
 
 .section-title {

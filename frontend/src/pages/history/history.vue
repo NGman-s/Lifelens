@@ -117,7 +117,7 @@ const handleLongPress = (entry) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-  padding-top: env(safe-area-inset-top);
+  padding-top: calc(env(safe-area-inset-top) + 20px);
 }
 
 .clear-btn {
