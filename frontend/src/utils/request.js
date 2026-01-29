@@ -1,13 +1,21 @@
 // =============================================================================
-// 后端服务器地址配置 / Backend Configuration
+// 环境配置 / Environment Configuration
 // =============================================================================
-// TODO: 请将下面的地址修改为你的云服务器公网 IP 或域名
-// 格式示例: 'http://123.45.67.89:8000' 或 'https://api.yourdomain.com'
+
+// 1. 开发环境 (本地电脑浏览器调试用)
+// 使用 localhost，避免因 IP 变动导致连接失败
+const LOCAL_HOST = 'http://localhost:8000';
+
+// 2. 生产环境 (上传服务器/打包APP时用)
+// 这里的 IP 是你云服务器的公网 IP
 const SERVER_HOST = 'http://106.55.168.47:8080';
 
-// 统一的基础路径配置
-// 既支持 H5 (跨域访问云端)，也支持 App (直接访问云端)
-const BASE_URL = SERVER_HOST;
+// 自动判断当前环境
+// npm run dev -> 使用开发环境地址
+// npm run build -> 使用生产环境地址
+const BASE_URL = import.meta.env.MODE === 'development'
+  ? LOCAL_HOST
+  : SERVER_HOST;
 
 const request = (options) => {
   return new Promise((resolve, reject) => {
