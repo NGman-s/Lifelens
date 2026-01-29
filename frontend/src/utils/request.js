@@ -1,10 +1,13 @@
-const DEV_BASE_URL = 'http://192.168.0.102:8000'; // Local dev IP
+// =============================================================================
+// 后端服务器地址配置 / Backend Configuration
+// =============================================================================
+// TODO: 请将下面的地址修改为你的云服务器公网 IP 或域名
+// 格式示例: 'http://123.45.67.89:8000' 或 'https://api.yourdomain.com'
+const SERVER_HOST = 'http://106.55.168.47:8080';
 
-// In production, use relative path (empty string) so requests go to the same domain/port
-// Nginx will intercept /api requests and forward them to the backend
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? DEV_BASE_URL
-  : '';
+// 统一的基础路径配置
+// 既支持 H5 (跨域访问云端)，也支持 App (直接访问云端)
+const BASE_URL = SERVER_HOST;
 
 const request = (options) => {
   return new Promise((resolve, reject) => {
