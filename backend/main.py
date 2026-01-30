@@ -61,6 +61,14 @@ async def analyze_vision(
         # Call Qwen-VL analysis
         analysis_result = await analyze_food_image(file_path, user_context)
 
+        # Check if analysis failed (vision_service returns error dict instead of raising)
+        if "error" in analysis_result:
+            return {
+                "code": 500,
+                "message": analysis_result.get("error", "Analysis failed"),
+                "trace_id": file_id
+            }
+
         # Add image_url to the result
         # The frontend will prepend the BASE_URL
         analysis_result["image_url"] = f"/uploads/{filename}"
