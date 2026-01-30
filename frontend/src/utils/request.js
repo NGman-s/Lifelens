@@ -7,8 +7,8 @@
 const LOCAL_HOST = 'http://localhost:8000';
 
 // 2. 生产环境 (上传服务器/打包APP时用)
-// 这里的 IP 是你云服务器的公网 IP
-const SERVER_HOST = 'http://106.55.168.47:8080';
+// 使用相对路径，通过 Nginx 转发到后端 /api
+const SERVER_HOST = '';
 
 // 自动判断当前环境
 // npm run dev -> 使用开发环境地址
