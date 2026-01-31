@@ -83,25 +83,28 @@ async def analyze_food_image(image_path, user_context_str):
         1. First, identify all food items in the image and estimate their portions accurately.
         2. Reason about the nutritional content (macros/micros) based on ingredients.
         3. MANDATORY SAFETY CHECK: Cross-reference the identified ingredients with the user's health conditions.
+           - Start your thought process by explicitly listing the health conditions considered: "考虑到用户的[健康状况1, 健康状况2]...".
+           - IF USER HAS ALLERGIES: You MUST flag ANY potential presence or risk of cross-contamination of the allergen.
            - If user has "Diabetes": Be extremely sensitive to added sugars, white flour, and high-GI fruits.
-           - If user has "Hypertension": Be extremely sensitive to high sodium, processed meats, and salty sauces.
+           - If user has "Hypertension": Be extremely sensitive to high sodium (salt), processed meats, and salty sauces.
            - If user has "High Cholesterol": Flag high saturated fats and trans fats.
-           - If user has allergies: Flag any potential traces or direct presence of the allergen.
-        4. Traffic Light Logic:
-           - RED: Direct conflict with health conditions or goal (e.g., sugary drink for Diabetic).
-           - YELLOW: Borderline or requires strict portion control.
-           - GREEN: Highly recommended and safe.
+        4. Traffic Light Logic (Rating Standards):
+           - RED: Mandatory for any direct ALLERGY exposure. Also for direct, high-risk conflicts with health conditions (e.g., sugary drink for Diabetic, high-sodium meal for Hypertension).
+           - YELLOW: Borderline/Caution. High in calories, fat, sugar, or sodium relative to goals, or requiring strict portion control.
+           - GREEN: Safe and recommended. No health conflicts; aligns with nutrition goals.
         5. Global Calculation:
            - Calculate 'total_calories' by summing up the calories of all identified items.
            - Generate a 'main_name' that describes the entire meal (e.g., "Avocado Salmon Salad").
            - Determine a 'total_traffic_light' based on the overall health impact.
+           - Provide a 'warning_message' ONLY IF 'total_traffic_light' is 'red' or 'yellow', explaining the specific health risk or allergy concern clearly in Chinese.
 
         Output Format (STRICT JSON):
         {{
             "main_name": "Overall Dish Name (Chinese)",
             "total_calories": 0,
             "total_traffic_light": "green/yellow/red",
-            "thought_process": "Brief step-by-step reasoning in Chinese",
+            "warning_message": "Clear warning in Chinese (if red/yellow, otherwise empty string)",
+            "thought_process": "Detailed step-by-step reasoning in Chinese",
             "items": [
                 {{
                     "name": "Dish Name (Chinese)",

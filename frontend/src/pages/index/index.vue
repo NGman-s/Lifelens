@@ -3,7 +3,7 @@
     <!-- Camera View Finder / Background Image -->
     <view class="camera-view">
       <image v-if="capturedImage" :src="capturedImage" mode="aspectFill" class="bg-image"></image>
-      <view v-else class="camera-placeholder" @tap="handleCapture">
+      <view v-if="!capturedImage" class="camera-placeholder" @tap="handleCapture">
         <view class="placeholder-content">
           <text class="placeholder-icon">📷</text>
           <text class="placeholder-text">点击拍照识别食物</text>
@@ -23,6 +23,8 @@
       :visible="showOverlay"
       :loading="loading"
       :result="analysisResult"
+      :stage="loadingStage"
+      :healthConditions="userStore.profile.health_conditions"
       @save="handleSave"
       @discard="handleDiscard"
     />
@@ -52,6 +54,7 @@ const userStore = useUserStore();
 const capturedImage = ref(null);
 const showOverlay = ref(false);
 const loading = ref(false);
+const loadingStage = ref(0);
 const analysisResult = ref(null);
 const mockMode = ref(false);
 const clickCount = ref(0);
@@ -62,6 +65,7 @@ const getMockResult = (goal) => {
     main_name: "烤鸡胸肉沙拉",
     total_calories: 350,
     total_traffic_light: "green",
+    warning_message: "",
     thought_process: "识别出这是一份烤鸡胸肉沙拉，包含生菜、圣女果和玉米粒。",
     items: [
       {
@@ -79,7 +83,14 @@ const getMockResult = (goal) => {
     }
   };
 
-  if (goal === 'diabetes') {
+  if (userStore.profile.health_conditions.includes('Hypertension')) {
+    baseResult.main_name = "红烧牛肉面";
+    baseResult.total_calories = 680;
+    baseResult.total_traffic_light = "red";
+    baseResult.warning_message = "检测到您患有高血压，这碗红烧牛肉面的钠含量极高（约为 2100mg），已超过您每日建议摄入量的 90%。建议只吃面，不要喝汤，以减少钠盐摄入。";
+    baseResult.total_analysis.summary = "高钠高热量的面食。";
+    baseResult.total_analysis.suggestion = "对于高血压患者，建议避开此类重口味汤面。";
+  } else if (goal === 'diabetes') {
     baseResult.total_analysis.suggestion = "蔬菜丰富，升糖指数低，适合您的饮食计划。";
   } else if (goal === 'weight_loss') {
     baseResult.total_analysis.suggestion = "热量控制得当，饱腹感强，非常适合减脂期食用。";
@@ -114,14 +125,23 @@ const processImage = async (path) => {
   capturedImage.value = path;
   showOverlay.value = true;
   loading.value = true;
+  loadingStage.value = 0;
+
+  // Start stage animation
+  const stageTimer = setInterval(() => {
+    if (loadingStage.value < 2) {
+      loadingStage.value++;
+    }
+  }, 1500);
 
   try {
     const compressedPath = await compressImage(path);
 
     if (mockMode.value) {
       setTimeout(() => {
+        clearInterval(stageTimer);
         finishAnalysis(getMockResult(userStore.profile.goal));
-      }, 1500);
+      }, 3500); // Wait a bit longer to show off the HUD
       return;
     }
 
@@ -134,12 +154,14 @@ const processImage = async (path) => {
       }
     });
 
+    clearInterval(stageTimer);
     if (res.code === 200) {
       finishAnalysis(res.data);
     } else {
       throw new Error(res.message || '分析失败');
     }
   } catch (e) {
+    clearInterval(stageTimer);
     console.error('Analysis error', e);
     loading.value = false;
     uni.showToast({

@@ -4,7 +4,7 @@
     <view class="backdrop" @tap="$emit('close')" v-if="visible"></view>
 
     <!-- Bottom Sheet -->
-    <view class="bottom-sheet" :class="{ 'slide-up': visible }">
+    <view class="bottom-sheet" :class="{ 'slide-up': visible, 'danger-border': result?.total_traffic_light === 'red' }">
       <!-- Drag Handle -->
       <view class="sheet-handle-bar">
         <view class="sheet-handle"></view>
@@ -14,7 +14,12 @@
       <view class="loading-state" v-if="loading">
         <view class="loading-spinner"></view>
         <text class="loading-text">正在分析...</text>
-        <text class="loading-sub">LifeLens AI 正在识别食物成分</text>
+        <AIThoughtViewer
+          :visible="true"
+          :stage="stage"
+          :healthConditions="healthConditions"
+          :isEmbedded="true"
+        />
       </view>
 
       <!-- Result Content -->
@@ -30,9 +35,13 @@
 
           <view class="nutrition-row">
             <view class="nutrition-item">
-              <text class="nutri-value">{{ result.total_calories || result.items[0]?.calories || 0 }}</text>
+              <view v-if="result.total_traffic_light === 'red'" class="danger-dot"></view>
+              <text class="nutri-value" :class="{ 'text-danger': result.total_traffic_light === 'red' }">
+                {{ result.total_calories || result.items[0]?.calories || 0 }}
+              </text>
               <text class="nutri-unit">kcal</text>
               <text class="nutri-label">热量</text>
+              <text v-if="result.total_traffic_light === 'red'" class="warning-icon">⚠️</text>
             </view>
             <view class="nutrition-divider"></view>
             <view class="nutrition-tags">
@@ -41,6 +50,17 @@
                 :key="tag"
                 class="tag-chip"
               >{{ tag }}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- Health Warning Section -->
+        <view class="section-container" v-if="result.warning_message">
+          <view class="warning-alert-card" :class="result.total_traffic_light">
+            <text class="warning-icon-large">⚠️</text>
+            <view class="warning-content">
+              <view class="warning-title">健康预警</view>
+              <text class="warning-text">{{ result.warning_message }}</text>
             </view>
           </view>
         </view>
@@ -71,7 +91,9 @@
         <!-- Action Buttons -->
         <view class="action-area button-group">
           <button class="btn-secondary" @tap="$emit('discard')">不保存</button>
-          <button class="btn-primary" @tap="$emit('save')">保存并关闭</button>
+          <button class="btn-primary" :class="{ 'btn-danger': result.total_traffic_light === 'red' }" @tap="handleSave">
+            {{ result.total_traffic_light === 'red' ? '仍要保存' : '保存并关闭' }}
+          </button>
         </view>
       </scroll-view>
     </view>
@@ -80,14 +102,21 @@
 
 <script setup>
 import { defineProps, defineEmits } from 'vue';
+import AIThoughtViewer from './AIThoughtViewer.vue';
 
 const props = defineProps({
   visible: Boolean,
   loading: Boolean,
-  result: Object
+  result: Object,
+  stage: Number,
+  healthConditions: Array
 });
 
 const emit = defineEmits(['save', 'discard']);
+
+const handleSave = () => {
+  emit('save');
+};
 
 const getTrafficLightLabel = (color) => {
   const map = {
@@ -150,6 +179,11 @@ const getTrafficLightLabel = (color) => {
 
   &.slide-up {
     transform: translateY(0);
+  }
+
+  &.danger-border {
+    border: 2px solid #FF3B30;
+    box-shadow: 0 -4px 30px rgba(255, 59, 48, 0.2);
   }
 }
 
@@ -259,6 +293,30 @@ const getTrafficLightLabel = (color) => {
   font-weight: 700;
   color: #1D1D1F;
   margin-right: 2px;
+
+  &.text-danger {
+    color: #FF3B30;
+  }
+}
+
+.danger-dot {
+  width: 10px;
+  height: 10px;
+  background-color: #FF3B30;
+  border-radius: 50%;
+  margin-right: 8px;
+  animation: pulse-red 1.5s infinite;
+}
+
+@keyframes pulse-red {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
+}
+
+.warning-icon {
+  margin-left: 8px;
+  font-size: 18px;
 }
 
 .nutri-unit {
@@ -315,6 +373,51 @@ const getTrafficLightLabel = (color) => {
   background: #F5F5F7;
   border-radius: 16px;
   padding: 16px;
+}
+
+/* Warning Alert Card */
+.warning-alert-card {
+  display: flex;
+  padding: 16px;
+  border-radius: 16px;
+  margin-bottom: 8px;
+  align-items: flex-start;
+
+  &.red {
+    background-color: #FFF2F2;
+    border: 1px solid #FF3B30;
+    .warning-icon-large { color: #FF3B30; }
+    .warning-title { color: #FF3B30; }
+  }
+
+  &.yellow {
+    background-color: #FFF9F2;
+    border: 1px solid #FF9500;
+    .warning-icon-large { color: #FF9500; }
+    .warning-title { color: #FF9500; }
+  }
+}
+
+.warning-icon-large {
+  font-size: 24px;
+  margin-right: 12px;
+  margin-top: -2px;
+}
+
+.warning-content {
+  flex: 1;
+}
+
+.warning-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.warning-text {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #1D1D1F;
 }
 
 .analysis-text {
@@ -389,5 +492,10 @@ const getTrafficLightLabel = (color) => {
   line-height: 50px;
   font-size: 17px;
   border-radius: 14px;
+
+  &.btn-danger {
+    background-color: #FF3B30 !important;
+    color: #FFF;
+  }
 }
 </style>
