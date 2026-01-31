@@ -4,7 +4,7 @@
 
 // 1. 开发环境 (本地电脑浏览器调试用)
 // 使用 localhost，避免因 IP 变动导致连接失败
-const LOCAL_HOST = 'http://localhost:8000';
+const LOCAL_HOST = 'http://localhost:8080';
 
 // 2. 生产环境 (上传服务器/打包APP时用)
 // 使用相对路径，通过 Nginx 转发到后端 /api

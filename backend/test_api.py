@@ -3,7 +3,7 @@ import json
 import os
 
 # Configuration
-API_URL = "http://localhost:8000/api/v1/vision/analyze"
+API_URL = "http://localhost:8080/api/v1/vision/analyze"
 TEST_IMAGE_PATH = "sample_food.jpg" # Make sure to put a sample image here
 USER_CONTEXT = {
     "age": 25,
