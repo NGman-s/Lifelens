@@ -38,11 +38,15 @@ const request = (options) => {
         }
       },
       fail: (err) => {
+        let msg = '网络连接超时';
+        if (err.errMsg && err.errMsg.indexOf('abort') !== -1) msg = '请求已取消';
+        if (err.errMsg && err.errMsg.indexOf('timeout') !== -1) msg = '连接服务器超时';
+
         uni.showToast({
-          title: '网络错误',
+          title: msg,
           icon: 'none'
         });
-        reject(err);
+        reject({ ...err, message: msg });
       }
     });
   });
@@ -76,10 +80,10 @@ const uploadFile = (options) => {
       },
       fail: (err) => {
         uni.showToast({
-          title: '上传失败',
+          title: '上传失败: ' + (err.errMsg || '网络错误'),
           icon: 'none'
         });
-        reject(err);
+        reject({ ...err, message: err.errMsg || '上传失败' });
       }
     });
   });

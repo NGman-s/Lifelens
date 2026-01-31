@@ -3,7 +3,7 @@
     <!-- Camera View Finder / Background Image -->
     <view class="camera-view">
       <image v-if="capturedImage" :src="capturedImage" mode="aspectFill" class="bg-image"></image>
-      <view v-if="!capturedImage" class="camera-placeholder" @tap="handleCapture">
+      <view v-if="!capturedImage" class="camera-placeholder" @click="handleCapture">
         <view class="placeholder-content">
           <text class="placeholder-icon">📷</text>
           <text class="placeholder-text">点击拍照识别食物</text>
@@ -13,7 +13,7 @@
 
     <!-- Shutter Button Area -->
     <view class="shutter-area" v-if="!showOverlay">
-      <view class="shutter-btn-outer" @tap="handleCapture">
+      <view class="shutter-btn-outer" @click="handleCapture">
         <view class="shutter-btn-inner"></view>
       </view>
     </view>
@@ -25,18 +25,20 @@
       :result="analysisResult"
       :stage="loadingStage"
       :healthConditions="userStore.profile.health_conditions"
+      :loading-alternatives="loadingAlternatives"
       @save="handleSave"
       @discard="handleDiscard"
+      @generate-alternatives="handleGenerateAlternatives"
     />
 
     <!-- Bottom Navigation -->
     <BottomNav current="home" />
 
     <!-- Mock Mode Indicator (Subtle) -->
-    <view class="mock-indicator" v-if="mockMode" @tap="handleLogoClick">M</view>
+    <view class="mock-indicator" v-if="mockMode" @click="handleLogoClick">M</view>
 
     <!-- Hidden Logo Trigger for Mock Mode -->
-    <view class="logo-trigger" @tap="handleLogoClick"></view>
+    <view class="logo-trigger" @click="handleLogoClick"></view>
   </view>
 </template>
 
@@ -54,6 +56,7 @@ const userStore = useUserStore();
 const capturedImage = ref(null);
 const showOverlay = ref(false);
 const loading = ref(false);
+const loadingAlternatives = ref(false);
 const loadingStage = ref(0);
 const analysisResult = ref(null);
 const mockMode = ref(false);
@@ -86,10 +89,16 @@ const getMockResult = (goal) => {
   if (userStore.profile.health_conditions.includes('Hypertension')) {
     baseResult.main_name = "红烧牛肉面";
     baseResult.total_calories = 680;
-    baseResult.total_traffic_light = "red";
-    baseResult.warning_message = "检测到您患有高血压，这碗红烧牛肉面的钠含量极高（约为 2100mg），已超过您每日建议摄入量的 90%。建议只吃面，不要喝汤，以减少钠盐摄入。";
+    baseResult.total_traffic_light = "yellow";
+    baseResult.warning_message = "这碗红烧牛肉面的钠含量较高，且属于高碳水食物。建议关注摄入量。";
     baseResult.total_analysis.summary = "高钠高热量的面食。";
-    baseResult.total_analysis.suggestion = "对于高血压患者，建议避开此类重口味汤面。";
+    baseResult.total_analysis.suggestion = "建议避开此类重口味汤面，或减少喝汤。";
+
+    // Add mock alternatives for Ramen
+    baseResult.mock_alternatives = {
+      ordering_hint: "如果您正在点餐，建议将‘日式拉面’换成‘荞麦凉面’（升糖指数更低，热量更少）。",
+      cooking_hint: "如果您是自己做，建议将 50% 的面条替换为魔芋丝（大幅度降低碳水和热量）。"
+    };
   } else if (goal === 'diabetes') {
     baseResult.total_analysis.suggestion = "蔬菜丰富，升糖指数低，适合您的饮食计划。";
   } else if (goal === 'weight_loss') {
@@ -175,6 +184,81 @@ const finishAnalysis = (result) => {
   analysisResult.value = result;
   loading.value = false;
   // removed auto-save
+};
+
+const handleGenerateAlternatives = async () => {
+  console.log('handleGenerateAlternatives: START', analysisResult.value);
+  if (!analysisResult.value) {
+    console.warn('handleGenerateAlternatives: No analysis result found');
+    uni.showToast({
+      title: '未发现识别结果',
+      icon: 'none'
+    });
+    return;
+  }
+
+  loadingAlternatives.value = true;
+  console.log('handleGenerateAlternatives: loadingAlternatives set to true');
+  uni.showLoading({
+    title: 'AI 正在爆改中...',
+    mask: true
+  });
+
+  try {
+    if (mockMode.value) {
+      console.log('handleGenerateAlternatives: Running in mock mode');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const mockAlts = analysisResult.value.mock_alternatives || {
+           ordering_hint: "建议换成轻食沙拉",
+           cooking_hint: "减少油盐投放"
+      };
+
+      analysisResult.value = {
+        ...analysisResult.value,
+        alternatives: mockAlts
+      };
+      console.log('handleGenerateAlternatives: Mock alternatives applied', analysisResult.value.alternatives);
+    } else {
+      console.log('handleGenerateAlternatives: Sending API request...');
+      const reqData = {
+        analysis_result: JSON.parse(JSON.stringify(analysisResult.value)),
+        user_context: JSON.parse(JSON.stringify(userStore.profile))
+      };
+      console.log('handleGenerateAlternatives: Request data:', reqData);
+
+      const res = await Api.request({
+        url: '/api/v1/vision/generate-alternatives',
+        method: 'POST',
+        timeout: 60000,
+        data: reqData
+      });
+
+      console.log('handleGenerateAlternatives: API Response received:', res);
+      if (res && res.code === 200 && res.data) {
+        const newResult = JSON.parse(JSON.stringify(analysisResult.value));
+        newResult.alternatives = res.data;
+        analysisResult.value = newResult;
+        console.log('handleGenerateAlternatives: Success. analysisResult updated.');
+      } else {
+        const errorMsg = res?.message || '后端返回格式错误';
+        console.error('handleGenerateAlternatives: API Error', res);
+        throw new Error(errorMsg);
+      }
+    }
+    uni.hideLoading();
+  } catch (e) {
+    uni.hideLoading();
+    console.error('handleGenerateAlternatives: FAILED', e);
+    const displayMsg = e.message || '网络连接超时';
+    uni.showToast({
+      title: '方案生成失败: ' + displayMsg,
+      icon: 'none',
+      duration: 3500
+    });
+  } finally {
+    loadingAlternatives.value = false;
+    console.log('handleGenerateAlternatives: loadingAlternatives set to false');
+  }
 };
 
 const handleSave = () => {

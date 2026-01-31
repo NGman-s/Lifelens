@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 import json
-from services.vision_service import analyze_food_image
+from services.vision_service import analyze_food_image, generate_alternative_suggestions
 from utils.cleanup import periodic_cleanup
 
 app = FastAPI(title="LifeLens API", version="1.0.0")
@@ -86,6 +86,30 @@ async def analyze_vision(
             "code": 500,
             "message": str(e),
             "trace_id": file_id
+        }
+
+class AlternativeRequest(BaseModel):
+    analysis_result: dict
+    user_context: dict
+
+@app.post("/api/v1/vision/generate-alternatives")
+async def generate_alternatives(request: AlternativeRequest):
+    try:
+        # Convert dicts back to JSON strings for the service function if needed,
+        # but the service can just take dicts too if updated.
+        # Let's keep it consistent with the service's current signature.
+        result = await generate_alternative_suggestions(
+            json.dumps(request.analysis_result),
+            json.dumps(request.user_context)
+        )
+        return {
+            "code": 200,
+            "data": result
+        }
+    except Exception as e:
+        return {
+            "code": 500,
+            "message": str(e)
         }
 
 if __name__ == "__main__":

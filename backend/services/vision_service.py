@@ -2,9 +2,10 @@ import os
 import base64
 import json
 import mimetypes
+import time
 from PIL import Image
 import pillow_avif
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,6 +17,11 @@ load_dotenv()
 # MODEL: "qwen-vl-max"
 
 client = OpenAI(
+    api_key=os.getenv("DASHSCOPE_API_KEY"),
+    base_url=os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+)
+
+async_client = AsyncOpenAI(
     api_key=os.getenv("DASHSCOPE_API_KEY"),
     base_url=os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 )
@@ -122,7 +128,7 @@ async def analyze_food_image(image_path, user_context_str):
         }}
         """
 
-        response = client.chat.completions.create(
+        response = await async_client.chat.completions.create(
             model="qwen3-vl-flash",
             messages=[
                 {
@@ -138,7 +144,8 @@ async def analyze_food_image(image_path, user_context_str):
                     ]
                 }
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            timeout=45.0
         )
 
         content = response.choices[0].message.content
@@ -166,3 +173,61 @@ async def analyze_food_image(image_path, user_context_str):
                 print(f"Cleaned up converted file: {converted_path}")
             except Exception as cleanup_err:
                 print(f"Error cleaning up {converted_path}: {cleanup_err}")
+
+async def generate_alternative_suggestions(analysis_result_str, user_context_str):
+    start_time = time.time()
+    try:
+        analysis_result = json.loads(analysis_result_str)
+        user_context = json.loads(user_context_str)
+        food_name = analysis_result.get('main_name', '未知食物')
+
+        print(f"Generating suggestions for: {food_name}...")
+
+        prompt = f"""
+        Role: Professional Nutritionist and AI Diet Expert.
+        Task: Based on a previous food analysis which resulted in a YELLOW or RED alert, provide two types of "AI Hack" (AI 爆改) suggestions to make the meal healthier.
+
+        Context:
+        - Food Name: {food_name}
+        - Calories: {analysis_result.get('total_calories')} kcal
+        - Warning Message: {analysis_result.get('warning_message')}
+        - Current Rating: {analysis_result.get('total_traffic_light')}
+        - User Goal: {user_context.get('goal')}
+        - User Health Conditions: {', '.join(user_context.get('health_conditions', []))}
+
+        Instructions:
+        1. Provide an 'ordering_hint': A better choice if the user is ordering from a restaurant (e.g., "将日式拉面换成荞麦凉面"). For RED alerts, suggesting a completely different dish is often necessary.
+        2. Provide a 'cooking_hint': A way to modify the dish if the user is cooking at home (e.g., "将 50% 的面条替换为魔芋丝"). For RED alerts, highlight ways to drastically reduce the problematic component.
+        3. Keep suggestions concise, practical, and highly relevant to the warning message and user context.
+        4. Both suggestions MUST be in Simplified Chinese (简体中文).
+
+        Output Format (STRICT JSON):
+        {{
+            "ordering_hint": "Ordering suggestion here",
+            "cooking_hint": "Cooking suggestion here"
+        }}
+        """
+
+        response = await async_client.chat.completions.create(
+            model="qwen-flash",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": prompt}]
+                }
+            ],
+            response_format={"type": "json_object"},
+            timeout=30.0
+        )
+
+        content = response.choices[0].message.content
+        duration = time.time() - start_time
+        print(f"Suggestions for {food_name} generated in {duration:.2f}s")
+        return json.loads(content)
+    except Exception as e:
+        duration = time.time() - start_time
+        print(f"Error in generate_alternative_suggestions after {duration:.2f}s: {e}")
+        return {
+            "ordering_hint": "AI 建议生成失败，请稍后重试。",
+            "cooking_hint": "AI 建议生成失败，请稍后重试。"
+        }

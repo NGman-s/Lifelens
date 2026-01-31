@@ -1,10 +1,10 @@
 <template>
   <view class="overlay-container" :class="{ visible: visible }">
     <!-- Backdrop -->
-    <view class="backdrop" @tap="$emit('close')" v-if="visible"></view>
+    <view class="backdrop" @click="$emit('close')" v-if="visible"></view>
 
     <!-- Bottom Sheet -->
-    <view class="bottom-sheet" :class="{ 'slide-up': visible, 'danger-border': result?.total_traffic_light === 'red' }">
+    <view class="bottom-sheet" :class="{ 'slide-up': visible, 'danger-border': (result?.total_traffic_light || '').toLowerCase() === 'red' }">
       <!-- Drag Handle -->
       <view class="sheet-handle-bar">
         <view class="sheet-handle"></view>
@@ -28,20 +28,20 @@
         <view class="result-header">
           <view class="title-row">
             <text class="dish-name">{{ result.main_name || result.items[0]?.name || '识别结果' }}</text>
-            <view class="traffic-badge" :class="result.total_traffic_light || result.items[0]?.traffic_light">
+            <view class="traffic-badge" :class="(result.total_traffic_light || result.items[0]?.traffic_light || '').toLowerCase()">
               {{ getTrafficLightLabel(result.total_traffic_light || result.items[0]?.traffic_light) }}
             </view>
           </view>
 
           <view class="nutrition-row">
             <view class="nutrition-item">
-              <view v-if="result.total_traffic_light === 'red'" class="danger-dot"></view>
-              <text class="nutri-value" :class="{ 'text-danger': result.total_traffic_light === 'red' }">
+              <view v-if="(result.total_traffic_light || '').toLowerCase() === 'red'" class="danger-dot"></view>
+              <text class="nutri-value" :class="{ 'text-danger': (result.total_traffic_light || '').toLowerCase() === 'red' }">
                 {{ result.total_calories || result.items[0]?.calories || 0 }}
               </text>
               <text class="nutri-unit">kcal</text>
               <text class="nutri-label">热量</text>
-              <text v-if="result.total_traffic_light === 'red'" class="warning-icon">⚠️</text>
+              <text v-if="(result.total_traffic_light || '').toLowerCase() === 'red'" class="warning-icon">⚠️</text>
             </view>
             <view class="nutrition-divider"></view>
             <view class="nutrition-tags">
@@ -56,7 +56,7 @@
 
         <!-- Health Warning Section -->
         <view class="section-container" v-if="result.warning_message">
-          <view class="warning-alert-card" :class="result.total_traffic_light">
+          <view class="warning-alert-card" :class="(result.total_traffic_light || '').toLowerCase()">
             <text class="warning-icon-large">⚠️</text>
             <view class="warning-content">
               <view class="warning-title">健康预警</view>
@@ -88,11 +88,48 @@
           <view class="thought-text">{{ result.thought_process }}</view>
         </view>
 
+        <!-- AI Hack Section (New) -->
+        <view class="section-container" v-if="((result.total_traffic_light || '').toLowerCase() !== 'green') || result.alternatives">
+          <view class="section-title">AI 爆改建议</view>
+
+          <!-- Generate Button -->
+          <view v-if="!result.alternatives" class="hack-generate-box">
+             <button
+               class="btn-hack"
+               :loading="loadingAlternatives"
+               :disabled="loadingAlternatives"
+               @click="handleHackClick"
+             >
+               <text>{{ loadingAlternatives ? '正在生成爆改方案...' : '点击获取 AI 爆改建议' }}</text>
+             </button>
+             <text class="hack-tip">💡 发现非绿灯食物，让 AI 为您提供更优选择</text>
+          </view>
+
+          <!-- Alternatives Display -->
+          <view v-else class="alternatives-card">
+            <view class="alt-item">
+              <view class="alt-header">
+                <text class="alt-icon">🍽️</text>
+                <text class="alt-label">点餐更优选</text>
+              </view>
+              <text class="alt-text">{{ result.alternatives.ordering_hint }}</text>
+            </view>
+            <view class="alt-divider"></view>
+            <view class="alt-item">
+              <view class="alt-header">
+                <text class="alt-icon">👨‍🍳</text>
+                <text class="alt-label">自制健康改</text>
+              </view>
+              <text class="alt-text">{{ result.alternatives.cooking_hint }}</text>
+            </view>
+          </view>
+        </view>
+
         <!-- Action Buttons -->
         <view class="action-area button-group">
-          <button class="btn-secondary" @tap="$emit('discard')">不保存</button>
-          <button class="btn-primary" :class="{ 'btn-danger': result.total_traffic_light === 'red' }" @tap="handleSave">
-            {{ result.total_traffic_light === 'red' ? '仍要保存' : '保存并关闭' }}
+          <button class="btn-secondary" @click="$emit('discard')">不保存</button>
+          <button class="btn-primary" :class="{ 'btn-danger': (result.total_traffic_light || '').toLowerCase() === 'red' }" @click="handleSave">
+            {{ (result.total_traffic_light || '').toLowerCase() === 'red' ? '仍要保存' : '保存并关闭' }}
           </button>
         </view>
       </scroll-view>
@@ -109,22 +146,35 @@ const props = defineProps({
   loading: Boolean,
   result: Object,
   stage: Number,
-  healthConditions: Array
+  healthConditions: Array,
+  loadingAlternatives: Boolean
 });
 
-const emit = defineEmits(['save', 'discard']);
+const emit = defineEmits(['save', 'discard', 'generate-alternatives']);
+
+const handleHackClick = () => {
+  console.log('ResultOverlay: handleHackClick triggered');
+  uni.showToast({
+    title: '正在请求 AI 建议...',
+    icon: 'none',
+    duration: 800
+  });
+  emit('generate-alternatives');
+};
 
 const handleSave = () => {
   emit('save');
 };
 
 const getTrafficLightLabel = (color) => {
+  if (!color) return '未知';
+  const c = color.toLowerCase();
   const map = {
     'green': '推荐',
     'yellow': '适量',
     'red': '少吃'
   };
-  return map[color] || '未知';
+  return map[c] || '未知';
 };
 </script>
 
@@ -497,5 +547,97 @@ const getTrafficLightLabel = (color) => {
     background-color: #FF3B30 !important;
     color: #FFF;
   }
+}
+
+/* AI Hack Section Styles */
+.hack-generate-box {
+  background: #F0F9EB;
+  border: 1px dashed #67C23A;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-hack {
+  width: 100%;
+  height: 44px;
+  line-height: 44px;
+  background-color: #34C759;
+  color: #FFF;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: none;
+
+  &:active {
+    opacity: 0.8;
+  }
+
+  &[disabled] {
+    background-color: #A9E0B2;
+    opacity: 1;
+  }
+}
+
+.hack-loading-icon {
+  margin-right: 8px;
+  animation: spinner 2s linear infinite;
+}
+
+@keyframes spinner {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.hack-tip {
+  font-size: 12px;
+  color: #8E8E93;
+}
+
+.alternatives-card {
+  background: linear-gradient(135deg, #F0F9EB 0%, #F5FFF0 100%);
+  border: 1px solid #C2E7B0;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.alt-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alt-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alt-icon {
+  font-size: 16px;
+}
+
+.alt-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #34C759;
+}
+
+.alt-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1D1D1F;
+}
+
+.alt-divider {
+  height: 1px;
+  background-color: #C2E7B0;
+  margin: 12px 0;
 }
 </style>
