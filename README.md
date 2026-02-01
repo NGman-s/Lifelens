@@ -4,7 +4,7 @@
 
 ## 1. 项目摘要 (Abstract)
 
-针对传统饮食管理应用普遍存在的“手动记录繁琐”、“营养反馈滞后”等痛点，**LifeLens** 提出了一种基于 **"Camera-First" (相机优先)** 交互范式的解决方案。项目深度融合了 **多模态大语言模型 (Qwen-VL)** 与 **端侧智能技术**，实现了“拍照即识别、识别即分析”的极简体验。通过 Uni-app 跨端架构与 Python FastAPI 云端网关的协同，结合 **OPPO Health Service** 生态能力，为用户提供实时的营养摄入监控与动态健康建议，致力于成为用户的贴身数字营养师。
+针对传统饮食管理应用普遍存在的“手动记录繁琐”、“营养反馈滞后”等痛点，**LifeLens** 提出了一种基于 **"Camera-First" (相机优先)** 交互范式的解决方案。项目深度融合了 **多模态大语言模型 (Qwen-Flash)** 与 **端侧智能技术**，实现了“拍照即识别、识别即分析”的极简体验。通过 Uni-app 跨端架构与 Python FastAPI 云端网关的协同，结合 **OPPO Health Service** 生态能力，为用户提供实时的营养摄入监控与动态健康建议，致力于成为用户的贴身数字营养师。
 
 ---
 
@@ -32,9 +32,9 @@
 
 ```mermaid
 graph LR
-    User[用户/终端] -->|1. 拍摄 & 压缩| Client[Uni-app 前端]
-    Client -->|2. HTTPs/5G| Gateway[FastAPI 网关]
-    Gateway -->|3. API 调用| LLM[阿里云 DashScope (Qwen-VL)]
+    User["用户/终端"] -->|1. 拍摄 & 压缩| Client["Uni-app 前端"]
+    Client -->|2. HTTPs/5G| Gateway["FastAPI 网关"]
+    Gateway -->|3. API 调用| LLM["阿里云 DashScope (Qwen-Flash)"]
     LLM -->|4. 结构化 JSON| Gateway
     Gateway -->|5. 渲染指令| Client
     Client -->|6. AR 叠加展示| User
