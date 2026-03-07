@@ -34,6 +34,7 @@ export const useUserStore = defineStore('user', {
         const label = `${d.getMonth() + 1}/${d.getDate()}`;
         days.push({ fullDate: dateStr, label, calories: 0 });
       }
+      const dayMap = new Map(days.map(day => [day.fullDate, day]));
 
       // Aggregate history
       state.history.forEach(entry => {
@@ -44,7 +45,7 @@ export const useUserStore = defineStore('user', {
         const day = String(entryTime.getDate()).padStart(2, '0');
         const entryDateStr = `${year}-${month}-${day}`;
 
-        const dayStat = days.find(d => d.fullDate === entryDateStr);
+        const dayStat = dayMap.get(entryDateStr);
         if (dayStat && entry.result) {
           if (entry.result.total_calories) {
              dayStat.calories += (parseInt(entry.result.total_calories) || 0);

@@ -26,6 +26,7 @@
       :stage="loadingStage"
       :healthConditions="userStore.profile.health_conditions"
       :loading-alternatives="loadingAlternatives"
+      @close="handleDiscard"
       @save="handleSave"
       @discard="handleDiscard"
       @generate-alternatives="handleGenerateAlternatives"
@@ -61,6 +62,27 @@ const loadingStage = ref(0);
 const analysisResult = ref(null);
 const mockMode = ref(false);
 const clickCount = ref(0);
+
+const ensureMediaPermission = async () => {
+  let hasCameraPermission = false;
+  let hasGalleryPermission = false;
+
+  try {
+    await checkCameraPermission();
+    hasCameraPermission = true;
+  } catch (e) {
+    console.warn('Camera permission rejected', e);
+  }
+
+  try {
+    await checkGalleryPermission();
+    hasGalleryPermission = true;
+  } catch (e) {
+    console.warn('Gallery permission rejected', e);
+  }
+
+  return hasCameraPermission || hasGalleryPermission;
+};
 
 // Dynamic Mock Data for Demo
 const getMockResult = (goal) => {
@@ -122,11 +144,23 @@ const handleLogoClick = () => {
 
 const handleCapture = async () => {
   try {
+    const hasPermission = await ensureMediaPermission();
+    if (!hasPermission) {
+      // Let chooseImage trigger native permission prompt on first use if supported.
+      console.warn('No pre-authorized media permission, fallback to system prompt.');
+    }
     // In H5 dev mode, chooseImage works for both camera and album usually
     const path = await chooseImage(['camera', 'album']);
-    processImage(path);
+    await processImage(path);
   } catch (e) {
+    if (e?.errMsg && e.errMsg.includes('cancel')) {
+      return;
+    }
     console.error('Capture failed', e);
+    uni.showToast({
+      title: e?.message || '无法打开相机或相册',
+      icon: 'none'
+    });
   }
 };
 
@@ -172,11 +206,11 @@ const processImage = async (path) => {
   } catch (e) {
     clearInterval(stageTimer);
     console.error('Analysis error', e);
-    loading.value = false;
     uni.showToast({
       title: '识别失败，请重试',
       icon: 'none'
     });
+    closeOverlay();
   }
 };
 

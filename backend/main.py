@@ -1,116 +1,362 @@
-import os
-import shutil
-import uuid
 import asyncio
-from fastapi import FastAPI, UploadFile, File, Form
+import json
+import logging
+import os
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 import uvicorn
-import json
-from services.vision_service import analyze_food_image, generate_alternative_suggestions
+
+from services.vision_service import (
+    VisionServiceError,
+    analyze_food_image,
+    generate_alternative_suggestions,
+)
 from utils.cleanup import periodic_cleanup
 
-app = FastAPI(title="LifeLens API", version="1.0.0")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-# Configure CORS
+ALLOWED_IMAGE_FORMATS = {
+    "JPEG": ".jpg",
+    "PNG": ".png",
+    "WEBP": ".webp",
+    "BMP": ".bmp",
+    "AVIF": ".avif",
+}
+DISALLOWED_CONTENT_TYPES = {"image/svg+xml", "text/html"}
+CHUNK_SIZE = 1024 * 1024
+
+BASE_DIR = Path(__file__).resolve().parent
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+
+class UploadValidationError(Exception):
+    def __init__(self, message, status_code=400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+def _load_positive_int(name, default):
+    raw_value = str(os.getenv(name, default)).strip()
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid %s=%s, fallback to %s", name, raw_value, default)
+        return default
+    return parsed if parsed > 0 else default
+
+
+MAX_UPLOAD_SIZE_MB = _load_positive_int("MAX_UPLOAD_SIZE_MB", 10)
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+UPLOAD_RETENTION_DAYS = _load_positive_int("UPLOAD_RETENTION_DAYS", 8)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop_event = asyncio.Event()
+    cleanup_task = asyncio.create_task(
+        periodic_cleanup(
+            str(UPLOADS_DIR),
+            days=UPLOAD_RETENTION_DAYS,
+            interval_hours=24,
+            stop_event=stop_event,
+        )
+    )
+    app.state.cleanup_stop_event = stop_event
+    app.state.cleanup_task = cleanup_task
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await cleanup_task
+
+
+app = FastAPI(title="LifeLens API", version="1.0.0", lifespan=lifespan)
+
+
+def _load_cors_origins():
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
+    if raw == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_traffic_light(value, default="yellow"):
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"green", "yellow", "red"}:
+            return normalized
+    return default
+
+
+def _normalize_items(items):
+    normalized_items = []
+    if not isinstance(items, list):
+        return normalized_items
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        tags = item.get("nutrition_tags")
+        if not isinstance(tags, list):
+            tags = []
+        normalized_items.append(
+            {
+                "name": str(item.get("name") or "未知菜品"),
+                "calories": _safe_int(item.get("calories"), 0),
+                "unit": str(item.get("unit") or "kcal"),
+                "nutrition_tags": [str(tag) for tag in tags if tag is not None],
+                "traffic_light": _normalize_traffic_light(
+                    item.get("traffic_light"), "yellow"
+                ),
+            }
+        )
+    return normalized_items
+
+
+def _normalize_analysis_result(result):
+    if not isinstance(result, dict):
+        raise ValueError("Invalid analysis response format")
+
+    items = _normalize_items(result.get("items"))
+    fallback_name = items[0]["name"] if items else "未知菜品"
+    fallback_traffic = items[0]["traffic_light"] if items else "yellow"
+
+    total_analysis = result.get("total_analysis")
+    if not isinstance(total_analysis, dict):
+        total_analysis = {}
+
+    confidence = _safe_float(total_analysis.get("confidence"), 0.0)
+    confidence = max(0.0, min(1.0, confidence))
+
+    return {
+        "main_name": str(result.get("main_name") or fallback_name),
+        "total_calories": _safe_int(result.get("total_calories"), 0),
+        "total_traffic_light": _normalize_traffic_light(
+            result.get("total_traffic_light"), fallback_traffic
+        ),
+        "warning_message": str(result.get("warning_message") or ""),
+        "thought_process": str(result.get("thought_process") or ""),
+        "items": items,
+        "total_analysis": {
+            "summary": str(total_analysis.get("summary") or "暂无分析摘要"),
+            "suggestion": str(total_analysis.get("suggestion") or "暂无建议"),
+            "confidence": confidence,
+        },
+    }
+
+
+def _normalize_alternatives_result(result):
+    if not isinstance(result, dict):
+        raise ValueError("Invalid alternatives response format")
+    return {
+        "ordering_hint": str(result.get("ordering_hint") or "暂无点餐建议"),
+        "cooking_hint": str(result.get("cooking_hint") or "暂无烹饪建议"),
+    }
+
+
+def _error_response(message, status_code=500, trace_id=None):
+    payload = {
+        "code": status_code,
+        "message": str(message),
+    }
+    if trace_id:
+        payload["trace_id"] = trace_id
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+def _delete_file(file_path):
+    if not file_path:
+        return
+    path = Path(file_path)
+    if path.exists():
+        path.unlink(missing_ok=True)
+
+
+def _parse_user_context(raw_user_context):
+    try:
+        parsed = json.loads(raw_user_context)
+    except json.JSONDecodeError as exc:
+        raise UploadValidationError("用户档案格式无效", status_code=400) from exc
+
+    if not isinstance(parsed, dict):
+        raise UploadValidationError("用户档案格式无效", status_code=400)
+
+    health_conditions = parsed.get("health_conditions")
+    if not isinstance(health_conditions, list):
+        parsed["health_conditions"] = []
+    else:
+        parsed["health_conditions"] = [str(item) for item in health_conditions]
+
+    return parsed
+
+
+def _detect_image_format(file_path):
+    try:
+        with Image.open(file_path) as image:
+            image.verify()
+        with Image.open(file_path) as image:
+            detected_format = (image.format or "").upper()
+    except (UnidentifiedImageError, OSError) as exc:
+        logger.warning("Rejected invalid image file %s: %s", file_path, exc)
+        raise UploadValidationError("仅支持 JPG、PNG、WEBP、BMP、AVIF 图片", 415) from exc
+
+    if detected_format not in ALLOWED_IMAGE_FORMATS:
+        raise UploadValidationError("仅支持 JPG、PNG、WEBP、BMP、AVIF 图片", 415)
+    return detected_format
+
+
+async def _store_upload_file(upload_file: UploadFile, trace_id: str):
+    content_type = (upload_file.content_type or "").lower().strip()
+    if content_type in DISALLOWED_CONTENT_TYPES:
+        raise UploadValidationError("仅支持 JPG、PNG、WEBP、BMP、AVIF 图片", 415)
+
+    temp_path = UPLOADS_DIR / f"{trace_id}.upload"
+    total_size = 0
+    try:
+        with temp_path.open("wb") as buffer:
+            while True:
+                chunk = await upload_file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > MAX_UPLOAD_SIZE_BYTES:
+                    raise UploadValidationError(
+                        f"上传图片不能超过 {MAX_UPLOAD_SIZE_MB}MB",
+                        413,
+                    )
+                buffer.write(chunk)
+
+        if total_size == 0:
+            raise UploadValidationError("上传文件不能为空", 400)
+
+        detected_format = _detect_image_format(temp_path)
+        final_path = UPLOADS_DIR / f"{trace_id}{ALLOWED_IMAGE_FORMATS[detected_format]}"
+        temp_path.replace(final_path)
+        return final_path
+    except UploadValidationError:
+        _delete_file(temp_path)
+        raise
+    except Exception as exc:
+        _delete_file(temp_path)
+        logger.exception("Failed to store uploaded file trace_id=%s", trace_id)
+        raise UploadValidationError("上传图片失败，请重试", 500) from exc
+    finally:
+        await upload_file.close()
+
+
+CORS_ORIGINS = _load_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
-if not os.path.exists(UPLOADS_DIR):
-    os.makedirs(UPLOADS_DIR)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
-# Mount uploads directory for static access
-app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
-
-@app.on_event("startup")
-async def startup_event():
-    # Start periodic cleanup task in background (every 24h, delete files > 8 days old)
-    asyncio.create_task(periodic_cleanup(UPLOADS_DIR, days=8, interval_hours=24))
-
-@app.get("/")
-async def root():
-    return {"message": "LifeLens API is running"}
-
-@app.post("/api/v1/vision/analyze")
-async def analyze_vision(
-    file: UploadFile = File(...),
-    user_context: str = Form(...)
-):
-    # Save uploaded file
-    file_id = str(uuid.uuid4())
-    ext = os.path.splitext(file.filename)[1]
-    if not ext:
-        ext = ".jpg" # Default to jpg if no extension
-
-    filename = f"{file_id}{ext}"
-    file_path = os.path.join(UPLOADS_DIR, filename)
-
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    try:
-        # Call Qwen-VL analysis
-        analysis_result = await analyze_food_image(file_path, user_context)
-
-        # Check if analysis failed (vision_service returns error dict instead of raising)
-        if "error" in analysis_result:
-            return {
-                "code": 500,
-                "message": analysis_result.get("error", "Analysis failed"),
-                "trace_id": file_id
-            }
-
-        # Add image_url to the result
-        # The frontend will prepend the BASE_URL
-        analysis_result["image_url"] = f"/uploads/{filename}"
-
-        return {
-            "code": 200,
-            "data": analysis_result,
-            "trace_id": file_id
-        }
-    except Exception as e:
-        # If analysis fails, we might still want to keep the image for debugging,
-        # or delete it. For now, let's keep it consistent with the success case
-        # (or maybe delete to save space if it's useless? Let's keep it simple).
-        return {
-            "code": 500,
-            "message": str(e),
-            "trace_id": file_id
-        }
 
 class AlternativeRequest(BaseModel):
     analysis_result: dict
     user_context: dict
 
+
+@app.get("/")
+async def root():
+    return {"message": "LifeLens API is running"}
+
+
+@app.get("/api/v1/health")
+async def health():
+    return {
+        "status": "ok",
+        "service": "lifelens-api",
+        "max_upload_size_mb": MAX_UPLOAD_SIZE_MB,
+        "upload_retention_days": UPLOAD_RETENTION_DAYS,
+    }
+
+
+@app.post("/api/v1/vision/analyze")
+async def analyze_vision(file: UploadFile = File(...), user_context: str = Form(...)):
+    trace_id = str(uuid.uuid4())
+    saved_file_path = None
+
+    try:
+        parsed_user_context = _parse_user_context(user_context)
+        saved_file_path = await _store_upload_file(file, trace_id)
+        analysis_result = await analyze_food_image(str(saved_file_path), parsed_user_context)
+        normalized_result = _normalize_analysis_result(analysis_result)
+        normalized_result["image_url"] = f"/uploads/{saved_file_path.name}"
+        return JSONResponse(
+            status_code=200,
+            content={
+                "code": 200,
+                "data": normalized_result,
+                "trace_id": trace_id,
+            },
+        )
+    except UploadValidationError as exc:
+        return _error_response(exc.message, status_code=exc.status_code, trace_id=trace_id)
+    except VisionServiceError as exc:
+        _delete_file(saved_file_path)
+        return _error_response(str(exc), status_code=502, trace_id=trace_id)
+    except ValueError:
+        logger.exception("Invalid analysis response format trace_id=%s", trace_id)
+        _delete_file(saved_file_path)
+        return _error_response("图像分析结果格式异常，请稍后重试", 502, trace_id)
+    except Exception:
+        logger.exception("Unexpected error during image analysis trace_id=%s", trace_id)
+        _delete_file(saved_file_path)
+        return _error_response("服务器内部错误，请稍后重试", 500, trace_id)
+
+
 @app.post("/api/v1/vision/generate-alternatives")
 async def generate_alternatives(request: AlternativeRequest):
+    trace_id = str(uuid.uuid4())
     try:
-        # Convert dicts back to JSON strings for the service function if needed,
-        # but the service can just take dicts too if updated.
-        # Let's keep it consistent with the service's current signature.
         result = await generate_alternative_suggestions(
-            json.dumps(request.analysis_result),
-            json.dumps(request.user_context)
+            request.analysis_result,
+            request.user_context,
         )
-        return {
-            "code": 200,
-            "data": result
-        }
-    except Exception as e:
-        return {
-            "code": 500,
-            "message": str(e)
-        }
+        normalized_result = _normalize_alternatives_result(result)
+        return JSONResponse(status_code=200, content={"code": 200, "data": normalized_result})
+    except VisionServiceError as exc:
+        return _error_response(str(exc), status_code=502, trace_id=trace_id)
+    except ValueError:
+        logger.exception("Invalid alternatives response format trace_id=%s", trace_id)
+        return _error_response("爆改建议结果格式异常，请稍后重试", 502, trace_id)
+    except Exception:
+        logger.exception("Unexpected error during alternatives generation trace_id=%s", trace_id)
+        return _error_response("服务器内部错误，请稍后重试", 500, trace_id)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)

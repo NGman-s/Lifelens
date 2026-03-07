@@ -27,9 +27,9 @@
         <!-- Header Section -->
         <view class="result-header">
           <view class="title-row">
-            <text class="dish-name">{{ result.main_name || result.items[0]?.name || '识别结果' }}</text>
-            <view class="traffic-badge" :class="(result.total_traffic_light || result.items[0]?.traffic_light || '').toLowerCase()">
-              {{ getTrafficLightLabel(result.total_traffic_light || result.items[0]?.traffic_light) }}
+            <text class="dish-name">{{ result.main_name || result.items?.[0]?.name || '识别结果' }}</text>
+            <view class="traffic-badge" :class="(result.total_traffic_light || result.items?.[0]?.traffic_light || '').toLowerCase()">
+              {{ getTrafficLightLabel(result.total_traffic_light || result.items?.[0]?.traffic_light) }}
             </view>
           </view>
 
@@ -37,7 +37,7 @@
             <view class="nutrition-item">
               <view v-if="(result.total_traffic_light || '').toLowerCase() === 'red'" class="danger-dot"></view>
               <text class="nutri-value" :class="{ 'text-danger': (result.total_traffic_light || '').toLowerCase() === 'red' }">
-                {{ result.total_calories || result.items[0]?.calories || 0 }}
+                {{ result.total_calories || result.items?.[0]?.calories || 0 }}
               </text>
               <text class="nutri-unit">kcal</text>
               <text class="nutri-label">热量</text>
@@ -46,7 +46,7 @@
             <view class="nutrition-divider"></view>
             <view class="nutrition-tags">
               <text
-                v-for="tag in result.items[0]?.nutrition_tags"
+                v-for="tag in (result.items?.[0]?.nutrition_tags || [])"
                 :key="tag"
                 class="tag-chip"
               >{{ tag }}</text>
@@ -70,13 +70,13 @@
           <view class="section-title">AI 分析</view>
           <view class="analysis-card">
             <view class="analysis-text summary">
-              {{ result.total_analysis.summary }}
+              {{ result.total_analysis?.summary || '暂无分析摘要' }}
             </view>
             <view class="analysis-divider"></view>
             <view class="suggestion-row">
               <text class="suggestion-icon">💡</text>
               <text class="analysis-text suggestion">
-                {{ result.total_analysis.suggestion }}
+                {{ result.total_analysis?.suggestion || '暂无建议' }}
               </text>
             </view>
           </view>
@@ -150,7 +150,7 @@ const props = defineProps({
   loadingAlternatives: Boolean
 });
 
-const emit = defineEmits(['save', 'discard', 'generate-alternatives']);
+const emit = defineEmits(['close', 'save', 'discard', 'generate-alternatives']);
 
 const handleHackClick = () => {
   console.log('ResultOverlay: handleHackClick triggered');

@@ -8,7 +8,7 @@ export const checkCameraPermission = () => {
     // #ifdef APP-PLUS
     if (uni.getSystemInfoSync().platform === 'ios') {
       const AVCaptureDevice = plus.ios.importClass('AVCaptureDevice');
-      const authStatus = AVCaptureDevice.authorizationStatusForMediaType('vide');
+      const authStatus = AVCaptureDevice.authorizationStatusForMediaType('video');
       if (authStatus === 3) {
         resolve(true);
       } else {
@@ -46,7 +46,11 @@ export const checkGalleryPermission = () => {
         reject(new Error('iOS相册权限被拒绝'));
       }
     } else {
-      plus.android.requestPermissions(['android.permission.READ_EXTERNAL_STORAGE'], (e) => {
+      const permissions = [
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.READ_MEDIA_IMAGES'
+      ];
+      plus.android.requestPermissions(permissions, (e) => {
         if (e.granted.length > 0) {
           resolve(true);
         } else {

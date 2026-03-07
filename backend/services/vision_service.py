@@ -1,14 +1,18 @@
-import os
 import base64
 import json
+import logging
 import mimetypes
+import os
 import time
+
 from PIL import Image
 import pillow_avif
-from openai import OpenAI, AsyncOpenAI
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Configuration for Qwen-VL-Max (assuming OpenAI-compatible endpoint like DashScope)
 # For DashScope:
@@ -16,60 +20,62 @@ load_dotenv()
 # BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
 # MODEL: "qwen-vl-max"
 
-client = OpenAI(
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url=os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-)
-
 async_client = AsyncOpenAI(
     api_key=os.getenv("DASHSCOPE_API_KEY"),
     base_url=os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 )
 
+
+class VisionServiceError(Exception):
+    """Safe error surfaced to API clients."""
+
+
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
-async def analyze_food_image(image_path, user_context_str):
+
+def _ensure_api_key_configured():
+    if os.getenv("DASHSCOPE_API_KEY"):
+        return
+    logger.error("DASHSCOPE_API_KEY is not configured")
+    raise VisionServiceError("图像分析服务暂时不可用，请稍后重试")
+
+
+async def analyze_food_image(image_path, user_context):
     converted_path = None
     try:
-        # Detect extension and handle format conversion if necessary
-        ext = os.path.splitext(image_path)[1].lower()
+        _ensure_api_key_configured()
 
-        # Initial MIME type detection for format-specific logic
+        ext = os.path.splitext(image_path)[1].lower()
         mime_type, _ = mimetypes.guess_type(image_path)
         if not mime_type:
             mime_map = {
-                '.webp': 'image/webp',
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.bmp': 'image/bmp',
-                '.avif': 'image/avif'
+                ".webp": "image/webp",
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".bmp": "image/bmp",
+                ".avif": "image/avif",
             }
             mime_type = mime_map.get(ext, "image/jpeg")
 
-        # DashScope/Qwen-VL might not support AVIF directly, convert to JPEG
-        if ext == '.avif' or mime_type == 'image/avif':
-            print(f"Converting AVIF to JPEG: {image_path}")
+        if ext == ".avif" or mime_type == "image/avif":
+            logger.info("Converting AVIF to JPEG: %s", image_path)
             try:
                 img = Image.open(image_path)
-                converted_path = image_path.rsplit('.', 1)[0] + "_converted.jpg"
+                converted_path = image_path.rsplit(".", 1)[0] + "_converted.jpg"
                 img.convert("RGB").save(converted_path, "JPEG", quality=95)
                 image_path = converted_path
                 mime_type = "image/jpeg"
-                print(f"Successfully converted AVIF to JPEG: {converted_path}")
-            except Exception as conv_err:
-                print(f"AVIF conversion failed: {conv_err}")
-                # Fallback to original and let the API decide
+                logger.info("Successfully converted AVIF to JPEG: %s", converted_path)
+            except Exception:
+                logger.exception("AVIF conversion failed for %s", image_path)
 
         base64_image = encode_image(image_path)
-        user_context = json.loads(user_context_str)
+        logger.info("Analyzing image: %s, detected MIME: %s", image_path, mime_type)
 
-        print(f"Analyzing image: {image_path}, Detected MIME: {mime_type}")
-
-        # Construct the prompt with Chain of Thought instructions
         prompt = f"""
         Role: Professional Nutritionist and AI Vision Expert.
         Task: Analyze the provided food image and provide nutritional information based on the user's profile.
@@ -150,38 +156,27 @@ async def analyze_food_image(image_path, user_context_str):
 
         content = response.choices[0].message.content
         return json.loads(content)
-    except Exception as e:
-        print(f"Error in analyze_food_image: {e}")
-        import traceback
-        traceback.print_exc()
-
-        # Return the specific error message to the frontend for debugging
-        return {
-            "error": str(e),
-            "items": [],
-            "total_analysis": {
-                "summary": "Analysis failed. Error: " + str(e),
-                "suggestion": "Please check the backend logs or try a different image.",
-                "confidence": 0
-            }
-        }
+    except VisionServiceError:
+        raise
+    except Exception:
+        logger.exception("Error in analyze_food_image")
+        raise VisionServiceError("图像分析服务暂时不可用，请稍后重试")
     finally:
-        # Clean up temporary converted file if it exists
         if converted_path and os.path.exists(converted_path):
             try:
                 os.remove(converted_path)
-                print(f"Cleaned up converted file: {converted_path}")
-            except Exception as cleanup_err:
-                print(f"Error cleaning up {converted_path}: {cleanup_err}")
+                logger.info("Cleaned up converted file: %s", converted_path)
+            except Exception:
+                logger.exception("Error cleaning up %s", converted_path)
 
-async def generate_alternative_suggestions(analysis_result_str, user_context_str):
+
+async def generate_alternative_suggestions(analysis_result, user_context):
     start_time = time.time()
     try:
-        analysis_result = json.loads(analysis_result_str)
-        user_context = json.loads(user_context_str)
-        food_name = analysis_result.get('main_name', '未知食物')
+        _ensure_api_key_configured()
+        food_name = analysis_result.get("main_name", "未知食物")
 
-        print(f"Generating suggestions for: {food_name}...")
+        logger.info("Generating suggestions for: %s", food_name)
 
         prompt = f"""
         Role: Professional Nutritionist and AI Diet Expert.
@@ -222,12 +217,11 @@ async def generate_alternative_suggestions(analysis_result_str, user_context_str
 
         content = response.choices[0].message.content
         duration = time.time() - start_time
-        print(f"Suggestions for {food_name} generated in {duration:.2f}s")
+        logger.info("Suggestions for %s generated in %.2fs", food_name, duration)
         return json.loads(content)
-    except Exception as e:
+    except VisionServiceError:
+        raise
+    except Exception:
         duration = time.time() - start_time
-        print(f"Error in generate_alternative_suggestions after {duration:.2f}s: {e}")
-        return {
-            "ordering_hint": "AI 建议生成失败，请稍后重试。",
-            "cooking_hint": "AI 建议生成失败，请稍后重试。"
-        }
+        logger.exception("Error in generate_alternative_suggestions after %.2fs", duration)
+        raise VisionServiceError("爆改建议服务暂时不可用，请稍后重试")
