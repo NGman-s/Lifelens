@@ -8,9 +8,8 @@
         </view>
       </view>
 
-      <!-- Trend Chart Section -->
       <view class="chart-card">
-         <TrendChart :data="weeklyStats" />
+        <TrendChart :data="weeklyStats" />
       </view>
 
       <view class="history-list">
@@ -28,8 +27,8 @@
             </view>
             <view class="card-summary">{{ entry.result?.total_analysis?.summary || '暂无分析摘要' }}</view>
             <view class="card-footer">
-               <view class="traffic-dot" :class="entry.result?.total_traffic_light || entry.result?.items?.[0]?.traffic_light"></view>
-               <text class="calories-text">{{ entry.result?.total_calories || entry.result?.items?.[0]?.calories || 0 }} kcal</text>
+              <view class="traffic-dot" :class="entry.result?.total_traffic_light || entry.result?.items?.[0]?.traffic_light"></view>
+              <text class="calories-text">{{ entry.result?.total_calories || entry.result?.items?.[0]?.calories || 0 }} kcal</text>
             </view>
           </view>
         </view>
@@ -41,34 +40,17 @@
 </template>
 
 <script setup>
-import { useUserStore } from '@/store/user';
 import { storeToRefs } from 'pinia';
 import TrendChart from '@/components/TrendChart.vue';
 import BottomNav from '@/components/BottomNav.vue';
-import { BASE_URL } from '@/utils/request';
+import { useUserStore } from '@/store/user';
+import { resolveImageUrl } from '@/utils/request';
 
 const userStore = useUserStore();
 const { history, weeklyStats } = storeToRefs(userStore);
 
-const resolveImageUrl = (path) => {
-  if (!path) return '';
-  // If it's a full URL, blob (local temp), or file path (app private storage), use as is
-  if (path.startsWith('http') || path.startsWith('blob:') || path.startsWith('file:') || path.startsWith('/')) {
-    // Check if it's our relative path format (starts with /uploads) but avoid double-slash if BASE_URL ends with /
-    // However, our BASE_URL is likely http://ip:port or empty string.
-
-    // Actually, simple check: if it looks like a relative path intended for our server (starts with /uploads) AND BASE_URL is set (dev mode)
-    if (path.startsWith('/uploads') && BASE_URL) {
-       return BASE_URL + path;
-    }
-    return path;
-  }
-  return path;
-};
-
 const formatDate = (isoString) => {
   const date = new Date(isoString);
-  // Simple format: MM-DD HH:mm
   return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 

@@ -1,52 +1,92 @@
-// =============================================================================
-// 环境配置 / Environment Configuration
-// =============================================================================
+const LOCAL_BACKEND_ORIGIN = 'http://localhost:8080';
+const SERVER_PATH_PREFIXES = ['/api', '/uploads'];
 
-// 1. 开发环境 (本地电脑浏览器调试用)
-// 使用 localhost，避免因 IP 变动导致连接失败
-const LOCAL_HOST = 'http://localhost:8080';
+const normalizeBaseUrl = (value = '') => value.trim().replace(/\/+$/, '');
+const hasProtocol = (value = '') => /^[a-z][a-z0-9+.-]*:/i.test(value);
+const ensureLeadingSlash = (value = '') => (value.startsWith('/') ? value : `/${value}`);
 
-// 2. 生产环境 (上传服务器/打包APP时用)
-// 使用相对路径，通过 Nginx 转发到后端 /api
-const SERVER_HOST = 'http://106.55.168.47';
+const envBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || '');
+let defaultBaseUrl = '';
 
-// 自动判断当前环境
-// npm run dev -> 使用开发环境地址
-// npm run build -> 使用生产环境地址
-const BASE_URL = import.meta.env.MODE === 'development'
-  ? LOCAL_HOST
-  : SERVER_HOST;
+// #ifndef H5
+defaultBaseUrl = import.meta.env.DEV ? LOCAL_BACKEND_ORIGIN : '';
+// #endif
+
+const BASE_URL = envBaseUrl || defaultBaseUrl;
+
+const parsePayload = (raw) => {
+  if (typeof raw !== 'string') {
+    return raw;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+};
+
+const buildServerUrl = (path) => {
+  const normalizedPath = ensureLeadingSlash(path || '');
+  return BASE_URL ? `${BASE_URL}${normalizedPath}` : normalizedPath;
+};
+
+const resolveImageUrl = (path) => {
+  if (!path) return '';
+  if (hasProtocol(path)) return path;
+  if (SERVER_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    return buildServerUrl(path);
+  }
+  return path;
+};
+
+const createRequestError = ({ statusCode = 0, payload = null, fallbackMessage = '请求失败，请稍后重试' }) => {
+  const parsedPayload = payload && typeof payload === 'object' ? payload : parsePayload(payload);
+  return {
+    statusCode,
+    code: parsedPayload?.code || statusCode,
+    message: parsedPayload?.message || fallbackMessage,
+    traceId: parsedPayload?.trace_id || parsedPayload?.traceId || '',
+    payload: parsedPayload
+  };
+};
+
+const formatRequestError = (error, fallbackMessage = '请求失败，请稍后重试') => {
+  const message = error?.message || fallbackMessage;
+  return error?.traceId ? `${message} (trace_id: ${error.traceId})` : message;
+};
 
 const request = (options) => {
   return new Promise((resolve, reject) => {
     uni.request({
-      url: BASE_URL + options.url,
+      url: buildServerUrl(options.url),
       method: options.method || 'GET',
       data: options.data || {},
       header: options.header || {},
       timeout: options.timeout || 10000,
       success: (res) => {
-        // Response Interceptor
+        const payload = parsePayload(res.data) ?? res.data;
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(res.data);
-        } else {
-          uni.showToast({
-            title: `错误: ${res.statusCode}`,
-            icon: 'none'
-          });
-          reject(res);
+          resolve(payload);
+          return;
         }
+        reject(createRequestError({
+          statusCode: res.statusCode,
+          payload,
+          fallbackMessage: `请求失败 (${res.statusCode})`
+        }));
       },
       fail: (err) => {
-        let msg = '网络连接超时';
-        if (err.errMsg && err.errMsg.indexOf('abort') !== -1) msg = '请求已取消';
-        if (err.errMsg && err.errMsg.indexOf('timeout') !== -1) msg = '连接服务器超时';
-
-        uni.showToast({
-          title: msg,
-          icon: 'none'
+        let message = '网络连接超时';
+        if (err.errMsg && err.errMsg.includes('abort')) message = '请求已取消';
+        if (err.errMsg && err.errMsg.includes('timeout')) message = '连接服务器超时';
+        reject({
+          statusCode: 0,
+          code: 0,
+          message,
+          traceId: '',
+          payload: null,
+          originalError: err
         });
-        reject({ ...err, message: msg });
       }
     });
   });
@@ -55,41 +95,39 @@ const request = (options) => {
 const uploadFile = (options) => {
   return new Promise((resolve, reject) => {
     uni.uploadFile({
-      url: BASE_URL + options.url,
+      url: buildServerUrl(options.url),
       filePath: options.filePath,
       name: options.name || 'file',
       formData: options.formData || {},
       header: options.header || {},
       timeout: options.timeout || 30000,
       success: (res) => {
-        // Response Interceptor
+        const payload = parsePayload(res.data) ?? res.data;
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            const data = JSON.parse(res.data);
-            resolve(data);
-          } catch (e) {
-            resolve(res.data);
-          }
-        } else {
-          uni.showToast({
-            title: `上传错误: ${res.statusCode}`,
-            icon: 'none'
-          });
-          reject(res);
+          resolve(payload);
+          return;
         }
+        reject(createRequestError({
+          statusCode: res.statusCode,
+          payload,
+          fallbackMessage: `上传失败 (${res.statusCode})`
+        }));
       },
       fail: (err) => {
-        uni.showToast({
-          title: '上传失败: ' + (err.errMsg || '网络错误'),
-          icon: 'none'
+        reject({
+          statusCode: 0,
+          code: 0,
+          message: err.errMsg || '上传失败',
+          traceId: '',
+          payload: null,
+          originalError: err
         });
-        reject({ ...err, message: err.errMsg || '上传失败' });
       }
     });
   });
 };
 
-export { BASE_URL };
+export { BASE_URL, buildServerUrl, formatRequestError, resolveImageUrl };
 
 export default {
   request,

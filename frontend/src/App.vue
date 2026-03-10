@@ -1,19 +1,8 @@
 <script>
-export default {
-  onLaunch: function () {
-    console.log('LifeLens Initialized')
-  },
-  onShow: function () {
-    console.log('App Show')
-  },
-  onHide: function () {
-    console.log('App Hide')
-  },
-}
+export default {};
 </script>
 
 <style lang="scss">
-/* Global Styles */
 @import '@/uni.scss';
 
 page {
@@ -26,12 +15,10 @@ page {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Reset box sizing */
 view, scroll-view, swiper, swiper-item, cover-view, cover-image, icon, text, rich-text, progress, button, checkbox, form, input, label, radio, slider, switch, textarea, navigator, audio, camera, image, video {
   box-sizing: border-box;
 }
 
-/* Common Utility Classes */
 .title-large {
   font-size: $uni-font-size-title;
   font-weight: 700;

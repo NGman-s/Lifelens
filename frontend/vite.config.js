@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite'
 import uni from '@dcloudio/vite-plugin-uni'
-// https://vitejs.dev/config/
+
+const devProxyTarget = 'http://localhost:8080'
+
 export default defineConfig({
-  plugins: [
-    uni(),
-  ],
+  plugins: [uni()],
   css: {
     preprocessorOptions: {
       scss: {
@@ -16,5 +16,15 @@ export default defineConfig({
     open: false,
     host: '0.0.0.0',
     port: 5173,
+    proxy: {
+      '/api': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+    },
   },
 })

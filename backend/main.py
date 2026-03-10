@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
+import pillow_avif
 from pydantic import BaseModel
 import uvicorn
 
@@ -360,3 +361,4 @@ async def generate_alternatives(request: AlternativeRequest):
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)
+

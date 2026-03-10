@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
   visible: Boolean,
@@ -153,3 +153,4 @@ watch(() => props.stage, () => {
   /* removed glitch effect as well since user wants to remove effects */
 }
 </style>
+

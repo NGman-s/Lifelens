@@ -141,7 +141,7 @@
 import { defineProps, defineEmits } from 'vue';
 import AIThoughtViewer from './AIThoughtViewer.vue';
 
-const props = defineProps({
+defineProps({
   visible: Boolean,
   loading: Boolean,
   result: Object,
@@ -153,12 +153,6 @@ const props = defineProps({
 const emit = defineEmits(['close', 'save', 'discard', 'generate-alternatives']);
 
 const handleHackClick = () => {
-  console.log('ResultOverlay: handleHackClick triggered');
-  uni.showToast({
-    title: '正在请求 AI 建议...',
-    icon: 'none',
-    duration: 800
-  });
   emit('generate-alternatives');
 };
 
@@ -641,3 +635,5 @@ const getTrafficLightLabel = (color) => {
   margin: 12px 0;
 }
 </style>
+
+

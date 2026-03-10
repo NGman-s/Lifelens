@@ -1,74 +1,67 @@
-# LifeLens 项目部署指南
+# LifeLens 部署指南
 
-本指南将帮助您使用 Docker 快速将 LifeLens 部署到服务器。
+## 1. 准备环境
 
-## 1. 准备工作
+服务器需要安装 Docker 与 Docker Compose，并开放你准备暴露的 H5 端口（默认 `80`）。
 
-### 服务器要求
-- 操作系统：Ubuntu 20.04/22.04 (推荐) 或 CentOS 7+
-- 内存：至少 2GB
-- 已安装 Git (可选)
+## 2. 准备配置
 
-### 必须安装的软件
-在您的服务器上运行以下命令安装 Docker：
+在项目根目录复制示例环境变量：
 
 ```bash
-# Ubuntu 安装 Docker
-curl -fsSL https://get.docker.com | bash
-# 启动 Docker
-sudo systemctl start docker
-sudo systemctl enable docker
+cp .env.example .env
 ```
 
-## 2. 部署步骤
+至少需要确认这些值：
 
-### 第一步：上传代码
-将整个项目文件夹上传到服务器（例如 `/root/lifelens`）。您可以使用 SCP、FTP 或 Git。
+- `DASHSCOPE_API_KEY`: 必填
+- `CORS_ALLOW_ORIGINS`: 生产环境请改成你的实际域名，不要继续使用 `*`
+- `MAX_UPLOAD_SIZE_MB`: 默认 `10`
+- `UPLOAD_RETENTION_DAYS`: 默认 `8`
+- `FRONTEND_PORT`: 默认 `80`
 
-### 第二步：配置环境变量
-在项目根目录（即 `docker-compose.yml` 所在的目录）创建一个 `.env` 文件，填入您的阿里云 DashScope API Key：
-
-```bash
-# 在服务器项目根目录执行
-echo "DASHSCOPE_API_KEY=您的实际API密钥" > .env
-```
-
-### 第三步：启动服务
-在项目根目录下运行：
+## 3. 启动服务
 
 ```bash
-# 构建并启动容器（后台运行）
 docker compose up -d --build
 ```
 
-> 注意：如果您使用的是旧版 Docker，可能需要使用 `docker-compose` 而不是 `docker compose`。
+容器说明：
 
-### 第四步：验证部署
-- **前端访问**：打开浏览器访问 `http://您的服务器IP`
-- **后端 API**：`http://您的服务器IP/api/`
+- `lifelens-backend`: FastAPI 后端，监听容器内 `8080`
+- `lifelens-frontend`: Nginx + H5 静态资源，默认对外暴露 `${FRONTEND_PORT}`
 
-## 3. 常见问题排查
+## 4. 验证部署
 
-**Q: 容器启动失败？**
+- 前端首页：`http://你的服务器IP或域名`
+- 健康检查：`http://你的服务器IP或域名/api/v1/health`
+- 上传图片资源：分析成功后返回的 `/uploads/...` 地址可直接在同域访问
+
+## 5. 线上行为说明
+
+- H5 前端默认走同源 `/api` 与 `/uploads`，不需要手改前端请求地址。
+- Nginx 已对 AI 接口启用基础限流：
+  - `/api/v1/vision/analyze`: `10 req/min/IP`，`burst 5`
+  - `/api/v1/vision/generate-alternatives`: `30 req/min/IP`，`burst 10`
+- 后端会校验上传图片真实格式，仅接受 `JPG/JPEG/PNG/WEBP/BMP/AVIF`。
+
+## 6. 常见操作
+
 查看日志：
+
 ```bash
 docker compose logs -f
 ```
 
-**Q: 只有后端，想单独测试？**
-```bash
-docker compose logs backend
-```
+重建并重启：
 
-**Q: 修改了代码如何更新？**
 ```bash
-# 重新构建并重启
 docker compose down
 docker compose up -d --build
 ```
 
-**Q: 微信小程序无法访问？**
-微信小程序强制要求 HTTPS。您需要：
-1. 购买或申请免费 SSL 证书（如 Let's Encrypt）。
-2. 修改 `nginx.conf` 配置 SSL 证书（监听 443 端口）。
-3. 重新启动 Nginx 容器。
+仅检查后端健康：
+
+```bash
+curl http://你的服务器IP或域名/api/v1/health
+```

@@ -1,107 +1,93 @@
-# LifeLens (智眼生活) - 基于多模态大模型的智能饮食健康管家
+# LifeLens
 
-> **第十九届全国大学生软件创新大赛参赛作品** | 赛题：端侧智能 · 场景感知
+LifeLens 是一个基于 Uni-app + FastAPI + 多模态模型的饮食识别与营养分析项目。当前仓库默认面向 Docker H5 轻量公网演示站，同时保留 Uni-app 多端构建能力。
 
-## 1. 项目摘要 (Abstract)
+## 项目结构
 
-针对传统饮食管理应用普遍存在的“手动记录繁琐”、“营养反馈滞后”等痛点，**LifeLens** 提出了一种基于 **"Camera-First" (相机优先)** 交互范式的解决方案。项目深度融合了 **多模态大语言模型 (Qwen-Flash)** 与 **端侧智能技术**，实现了“拍照即识别、识别即分析”的极简体验。通过 Uni-app 跨端架构与 Python FastAPI 云端网关的协同，结合 **OPPO Health Service** 生态能力，为用户提供实时的营养摄入监控与动态健康建议，致力于成为用户的贴身数字营养师。
+- `frontend/`: Uni-app 前端（Vue 3 + Pinia + Vite）
+- `backend/`: FastAPI 后端，负责图片校验、上传、模型调用与结果清洗
+- `docker-compose.yml`: 前后端一体化部署
+- `nginx.conf`: H5 静态资源与 `/api`、`/uploads` 反向代理配置
 
----
+## 环境变量
 
-## 2. 创新亮点 (Innovation Highlights)
+根目录提供示例文件 [`.env.example`](/E:/a_work/Ruanchuangsai/work/.env.example)。常用配置如下：
 
-本项目在交互模式、技术应用及架构设计三个维度进行了深入创新：
+- `DASHSCOPE_API_KEY`: 必填，DashScope API Key
+- `DASHSCOPE_BASE_URL`: 可选，默认 DashScope OpenAI 兼容地址
+- `CORS_ALLOW_ORIGINS`: 逗号分隔的允许来源
+- `MAX_UPLOAD_SIZE_MB`: 单张图片上传大小限制，默认 `10`
+- `UPLOAD_RETENTION_DAYS`: 上传图片保留天数，默认 `8`
+- `FRONTEND_PORT`: Docker 暴露的 H5 端口，默认 `80`
+- `VITE_API_BASE_URL`: 可选，仅在非 H5 或需要直连后端时覆盖前端请求基址
 
-### 2.1 交互模式创新：Camera-First 极简范式
-- **零阻力启动**：摒弃传统 App 复杂的菜单层级，启动即进入全屏取景框，将操作步骤缩减至极致（1步：点击快门）。
-- **AR 沉浸式反馈**：采用 **Glassmorphism (毛玻璃)** 风格的悬浮卡片，将 AI 分析出的热量、营养素数据直接叠加在实物画面上，实现“所见即所得”的增强现实体验。
+## 本地开发
 
-### 2.2 技术应用创新：RAG-lite 多模态架构
-- **非结构化到结构化**：利用精心设计的 Prompt Engineering，迫使视觉大模型 (VLM) 将复杂的菜品图像直接转化为标准的 JSON 营养档案（包含卡路里、碳水、蛋白质、脂肪及健康评级）。
-- **端云协同推理**：前端负责图像的智能压缩（保留纹理特征同时压缩至 <100KB），后端负责高并发推理，有效平衡了识别精度与响应延迟。
+### 1. 启动后端
 
-### 2.3 工程架构创新：高可用演示保障
-- **Mock Mode (演示保障模式)**：针对竞赛答辩场景网络不稳定的风险，内置了基于**隐形手势触发**的本地 Mock 引擎。该模式下，系统将调用本地预置的高保真数据集进行响应，确保演示环节的绝对稳定与零延迟。
-
----
-
-## 3. 技术架构 (Technical Architecture)
-
-### 3.1 系统架构图
-系统采用典型的前后端分离微服务架构，容器化部署：
-
-```mermaid
-graph LR
-    User["用户/终端"] -->|1. 拍摄 & 压缩| Client["Uni-app 前端"]
-    Client -->|2. HTTPs/5G| Gateway["FastAPI 网关"]
-    Gateway -->|3. API 调用| LLM["阿里云 DashScope (Qwen-Flash)"]
-    LLM -->|4. 结构化 JSON| Gateway
-    Gateway -->|5. 渲染指令| Client
-    Client -->|6. AR 叠加展示| User
-```
-
-### 3.2 技术栈清单 (Tech Stack)
-
-| 模块 | 技术选型 | 版本/说明 |
-| :--- | :--- | :--- |
-| **客户端** | **Uni-app** | 基于 Vue 3 + Vite + Pinia，支持编译为 Android APK 与微信小程序 |
-| **服务端** | **Python FastAPI** | 高性能异步 Web 框架，Docker 容器化部署 |
-| **AI 引擎** | **Qwen3-VL-Flash** | 通义千问视觉大模型，负责 OCR 与语义理解 |
-| **UI 框架** | **Uni-UI / CSS3** | 深度定制的 Glassmorphism 样式库 |
-
-### 3.3 OPPO 生态集成规划
-为了充分利用赛题指定的终端能力，项目规划了以下集成方案：
-1.  **OPPO Health Service**：通过 SDK 获取用户当日**实时步数**与**活动能量消耗**，实现“摄入-消耗”闭环算法。
-2.  **ColorOS 端侧 AI**：利用手机 NPU 能力进行本地基础 OCR（如包装袋文字提取），降低云端依赖。
-
----
-
-## 4. 商业与社会价值 (Value Proposition)
-
-- **社会价值**：通过降低记录门槛，辅助糖尿病、高血压等慢病群体进行精准的饮食干预，缓解公共医疗负担。
-- **商业模式**：采用 **Freemium (免费+增值)** 模式。基础识别功能免费以获取海量用户数据；高级营养报告、微量元素分析及长期健康趋势追踪为付费增值服务。
-
----
-
-## 5. 工程与部署 (Engineering & Deployment)
-
-### 5.1 资源链接 (Resources)
-- **代码仓库**: [GitHub - LifeLens](https://github.com/NGman-s/Lifelens)
-
-### 5.2 项目结构
-```bash
-.
-├── frontend/               # Uni-app 前端工程 (Vue 3)
-│   ├── src/pages/          # 业务页面 (相机、个人中心、历史)
-│   ├── src/components/     # 通用组件 (AR卡片、图表)
-│   └── src/utils/          # 工具库 (图像压缩、API请求)
-├── backend/                # FastAPI 后端工程
-│   ├── services/           # LLM 对接逻辑
-│   ├── Dockerfile          # 容器化配置
-│   └── main.py             # 网关入口
-└── work/                   # 项目文档与规划
-```
-
-### 5.3 快速启动指南 (Quick Start)
-
-#### 后端服务 (Backend)
 ```bash
 cd backend
 pip install -r requirements.txt
-# 在 .env 文件中配置 DASHSCOPE_API_KEY
+cp .env.example .env
 python main.py
-# 服务将运行在 http://0.0.0.0:8000
 ```
 
-#### 前端应用 (Frontend)
-1.  修改 `frontend/src/utils/request.js`，将 `BASE_URL` 设置为后端服务器的局域网 IP。
-2.  安装依赖并运行 H5 调试模式：
-    ```bash
-    cd frontend
-    npm install
-    npm run dev:h5 -- --host
-    ```
+后端默认监听 `http://localhost:8080`。
+
+### 2. 启动前端 H5
+
+```bash
+cd frontend
+npm install
+npm run dev:h5 -- --host
+```
+
+H5 开发环境默认使用同源相对路径，并通过 `Vite proxy` 将 `/api` 与 `/uploads` 转发到 `http://localhost:8080`，不需要再手动修改前端 IP。
+
+### 3. 非 H5 或直连后端调试
+
+如需让前端直接访问后端，请设置：
+
+```bash
+VITE_API_BASE_URL=http://localhost:8080
+```
+
+## Docker 部署
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+```
+
+默认访问地址：
+
+- 前端 H5: `http://localhost`
+- 健康检查: `http://localhost/api/v1/health`
+
+如需修改前端端口，设置 `FRONTEND_PORT` 后重新执行 `docker compose up -d --build`。
+
+## 接口概览
+
+- `GET /api/v1/health`: 健康检查
+- `POST /api/v1/vision/analyze`: 上传图片并返回营养分析结果
+- `POST /api/v1/vision/generate-alternatives`: 生成更健康的替代建议
+
+后端会对上传图片执行格式白名单、实际图片验证和 10MB 默认大小限制。成功分析后返回的 `image_url` 可通过同域 `/uploads/...` 直接访问。
+
+## 测试
+
+后端自动化测试：
+
+```bash
+cd backend
+python test_app.py
+```
+
+保留了一个手动烟雾测试脚本：
+
+```bash
+cd backend
+python test_api.py
+```
 
 
----
-*LifeLens Team | 2026*
