@@ -19,7 +19,12 @@
         </view>
 
         <view v-for="entry in history" :key="entry.id" class="history-card" @longpress="handleLongPress(entry)">
-          <image :src="resolveImageUrl(entry.image)" mode="aspectFill" class="card-image"></image>
+          <image
+            :src="getHistoryImageSrc(entry)"
+            mode="aspectFill"
+            class="card-image"
+            @error="handleImageError(entry.id)"
+          ></image>
           <view class="card-content">
             <view class="card-header">
               <text class="card-title">{{ entry.result?.main_name || entry.result?.items?.[0]?.name || '未知菜品' }}</text>
@@ -40,18 +45,45 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import TrendChart from '@/components/TrendChart.vue';
 import BottomNav from '@/components/BottomNav.vue';
 import { useUserStore } from '@/store/user';
 import { resolveImageUrl } from '@/utils/request';
+import historyPlaceholder from '@/static/history-placeholder.svg';
 
 const userStore = useUserStore();
 const { history, weeklyStats } = storeToRefs(userStore);
+const unavailableImages = ref({});
 
 const formatDate = (isoString) => {
   const date = new Date(isoString);
   return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
+
+const isImageExpired = (entry) => {
+  const expiresAt = entry.result?.image_expires_at;
+  if (!expiresAt) {
+    return false;
+  }
+
+  const expiresAtMs = new Date(expiresAt).getTime();
+  return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
+};
+
+const getHistoryImageSrc = (entry) => {
+  if (!entry.image || unavailableImages.value[entry.id] || isImageExpired(entry)) {
+    return historyPlaceholder;
+  }
+  return resolveImageUrl(entry.image);
+};
+
+const handleImageError = (entryId) => {
+  unavailableImages.value = {
+    ...unavailableImages.value,
+    [entryId]: true
+  };
 };
 
 const handleClear = () => {

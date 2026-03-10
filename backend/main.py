@@ -4,13 +4,14 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 import pillow_avif
 from pydantic import BaseModel
 import uvicorn
@@ -20,7 +21,7 @@ from services.vision_service import (
     analyze_food_image,
     generate_alternative_suggestions,
 )
-from utils.cleanup import periodic_cleanup
+from utils.cleanup import enforce_storage_limit, periodic_cleanup
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -37,6 +38,7 @@ ALLOWED_IMAGE_FORMATS = {
 }
 DISALLOWED_CONTENT_TYPES = {"image/svg+xml", "text/html"}
 CHUNK_SIZE = 1024 * 1024
+RESAMPLING_LANCZOS = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOADS_DIR = BASE_DIR / "uploads"
@@ -50,19 +52,42 @@ class UploadValidationError(Exception):
         self.status_code = status_code
 
 
-def _load_positive_int(name, default):
-    raw_value = str(os.getenv(name, default)).strip()
+def _load_int(name, default, min_value=1, max_value=None, aliases=None):
+    raw_value = str(default).strip()
+    source_name = name
+    for candidate in [name, *(aliases or [])]:
+        env_value = os.getenv(candidate)
+        if env_value is None or not str(env_value).strip():
+            continue
+        raw_value = str(env_value).strip()
+        source_name = candidate
+        break
+
     try:
         parsed = int(raw_value)
     except (TypeError, ValueError):
-        logger.warning("Invalid %s=%s, fallback to %s", name, raw_value, default)
+        logger.warning("Invalid %s=%s, fallback to %s", source_name, raw_value, default)
         return default
-    return parsed if parsed > 0 else default
+
+    if parsed < min_value or (max_value is not None and parsed > max_value):
+        logger.warning("Invalid %s=%s, fallback to %s", source_name, raw_value, default)
+        return default
+
+    return parsed
 
 
-MAX_UPLOAD_SIZE_MB = _load_positive_int("MAX_UPLOAD_SIZE_MB", 10)
+MAX_UPLOAD_SIZE_MB = _load_int("MAX_UPLOAD_SIZE_MB", 10)
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
-UPLOAD_RETENTION_DAYS = _load_positive_int("UPLOAD_RETENTION_DAYS", 8)
+THUMBNAIL_RETENTION_DAYS = _load_int(
+    "THUMBNAIL_RETENTION_DAYS",
+    30,
+    aliases=["UPLOAD_RETENTION_DAYS"],
+)
+THUMBNAIL_MAX_EDGE = _load_int("THUMBNAIL_MAX_EDGE", 512)
+THUMBNAIL_QUALITY = _load_int("THUMBNAIL_QUALITY", 70, min_value=1, max_value=100)
+THUMBNAIL_FALLBACK_JPEG_QUALITY = 75
+UPLOAD_STORAGE_LIMIT_MB = _load_int("UPLOAD_STORAGE_LIMIT_MB", 3072)
+UPLOAD_STORAGE_LIMIT_BYTES = UPLOAD_STORAGE_LIMIT_MB * 1024 * 1024
 
 
 @asynccontextmanager
@@ -71,9 +96,10 @@ async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(
         periodic_cleanup(
             str(UPLOADS_DIR),
-            days=UPLOAD_RETENTION_DAYS,
+            days=THUMBNAIL_RETENTION_DAYS,
             interval_hours=24,
             stop_event=stop_event,
+            max_total_size_bytes=UPLOAD_STORAGE_LIMIT_BYTES,
         )
     )
     app.state.cleanup_stop_event = stop_event
@@ -201,6 +227,14 @@ def _delete_file(file_path):
         path.unlink(missing_ok=True)
 
 
+def _to_utc_iso(dt):
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _build_image_expiration():
+    return _to_utc_iso(datetime.now(timezone.utc) + timedelta(days=THUMBNAIL_RETENTION_DAYS))
+
+
 def _parse_user_context(raw_user_context):
     try:
         parsed = json.loads(raw_user_context)
@@ -232,6 +266,54 @@ def _detect_image_format(file_path):
     if detected_format not in ALLOWED_IMAGE_FORMATS:
         raise UploadValidationError("仅支持 JPG、PNG、WEBP、BMP、AVIF 图片", 415)
     return detected_format
+
+
+def _prepare_thumbnail_image(source_image):
+    image = ImageOps.exif_transpose(source_image)
+    has_alpha = "A" in image.getbands() or (
+        image.mode == "P" and "transparency" in image.info
+    )
+    if has_alpha:
+        alpha_image = image.convert("RGBA")
+        background = Image.new("RGB", alpha_image.size, (255, 255, 255))
+        background.paste(alpha_image, mask=alpha_image.getchannel("A"))
+        return background
+    if image.mode not in {"RGB", "L"}:
+        return image.convert("RGB")
+    if image.mode == "L":
+        return image.convert("RGB")
+    return image
+
+
+def _create_thumbnail(source_path, trace_id):
+    try:
+        with Image.open(source_path) as source_image:
+            image = _prepare_thumbnail_image(source_image)
+            image.thumbnail((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE), RESAMPLING_LANCZOS)
+
+            webp_path = UPLOADS_DIR / f"{trace_id}.webp"
+            try:
+                image.save(
+                    webp_path,
+                    "WEBP",
+                    quality=THUMBNAIL_QUALITY,
+                    method=6,
+                )
+                return webp_path
+            except OSError:
+                jpeg_path = UPLOADS_DIR / f"{trace_id}.jpg"
+                image.save(
+                    jpeg_path,
+                    "JPEG",
+                    quality=THUMBNAIL_FALLBACK_JPEG_QUALITY,
+                    optimize=True,
+                )
+                return jpeg_path
+    except UploadValidationError:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to create thumbnail trace_id=%s", trace_id)
+        raise UploadValidationError("生成缩略图失败，请重试", 500) from exc
 
 
 async def _store_upload_file(upload_file: UploadFile, trace_id: str):
@@ -301,21 +383,37 @@ async def health():
         "status": "ok",
         "service": "lifelens-api",
         "max_upload_size_mb": MAX_UPLOAD_SIZE_MB,
-        "upload_retention_days": UPLOAD_RETENTION_DAYS,
+        "thumbnail_retention_days": THUMBNAIL_RETENTION_DAYS,
+        "thumbnail_max_edge": THUMBNAIL_MAX_EDGE,
+        "thumbnail_quality": THUMBNAIL_QUALITY,
+        "upload_storage_limit_mb": UPLOAD_STORAGE_LIMIT_MB,
     }
 
 
 @app.post("/api/v1/vision/analyze")
 async def analyze_vision(file: UploadFile = File(...), user_context: str = Form(...)):
     trace_id = str(uuid.uuid4())
-    saved_file_path = None
+    source_file_path = None
+    thumbnail_path = None
 
     try:
         parsed_user_context = _parse_user_context(user_context)
-        saved_file_path = await _store_upload_file(file, trace_id)
-        analysis_result = await analyze_food_image(str(saved_file_path), parsed_user_context)
+        source_file_path = await _store_upload_file(file, trace_id)
+        analysis_result = await analyze_food_image(str(source_file_path), parsed_user_context)
+        thumbnail_path = _create_thumbnail(source_file_path, trace_id)
+        _delete_file(source_file_path)
+        source_file_path = None
+
+        # Keep the latest thumbnail available even if the directory is already over quota.
+        enforce_storage_limit(
+            str(UPLOADS_DIR),
+            UPLOAD_STORAGE_LIMIT_BYTES,
+            protected_paths=[str(thumbnail_path)],
+        )
+
         normalized_result = _normalize_analysis_result(analysis_result)
-        normalized_result["image_url"] = f"/uploads/{saved_file_path.name}"
+        normalized_result["image_url"] = f"/uploads/{thumbnail_path.name}"
+        normalized_result["image_expires_at"] = _build_image_expiration()
         return JSONResponse(
             status_code=200,
             content={
@@ -325,17 +423,22 @@ async def analyze_vision(file: UploadFile = File(...), user_context: str = Form(
             },
         )
     except UploadValidationError as exc:
+        _delete_file(source_file_path)
+        _delete_file(thumbnail_path)
         return _error_response(exc.message, status_code=exc.status_code, trace_id=trace_id)
     except VisionServiceError as exc:
-        _delete_file(saved_file_path)
+        _delete_file(source_file_path)
+        _delete_file(thumbnail_path)
         return _error_response(str(exc), status_code=502, trace_id=trace_id)
     except ValueError:
         logger.exception("Invalid analysis response format trace_id=%s", trace_id)
-        _delete_file(saved_file_path)
+        _delete_file(source_file_path)
+        _delete_file(thumbnail_path)
         return _error_response("图像分析结果格式异常，请稍后重试", 502, trace_id)
     except Exception:
         logger.exception("Unexpected error during image analysis trace_id=%s", trace_id)
-        _delete_file(saved_file_path)
+        _delete_file(source_file_path)
+        _delete_file(thumbnail_path)
         return _error_response("服务器内部错误，请稍后重试", 500, trace_id)
 
 

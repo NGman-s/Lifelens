@@ -8,7 +8,10 @@ services:
       - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://localhost:8080}
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-10}
-      - UPLOAD_RETENTION_DAYS=${UPLOAD_RETENTION_DAYS:-8}
+      - THUMBNAIL_RETENTION_DAYS=${THUMBNAIL_RETENTION_DAYS:-30}
+      - THUMBNAIL_MAX_EDGE=${THUMBNAIL_MAX_EDGE:-512}
+      - THUMBNAIL_QUALITY=${THUMBNAIL_QUALITY:-70}
+      - UPLOAD_STORAGE_LIMIT_MB=${UPLOAD_STORAGE_LIMIT_MB:-3072}
     volumes:
       - ./backend/uploads:/app/uploads
     networks:

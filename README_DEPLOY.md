@@ -17,7 +17,10 @@ cp .env.example .env
 - `DASHSCOPE_API_KEY`: 必填
 - `CORS_ALLOW_ORIGINS`: 生产环境请改成你的实际域名，不要继续使用 `*`
 - `MAX_UPLOAD_SIZE_MB`: 默认 `10`
-- `UPLOAD_RETENTION_DAYS`: 默认 `8`
+- `THUMBNAIL_RETENTION_DAYS`: 默认 `30`
+- `THUMBNAIL_MAX_EDGE`: 默认 `512`
+- `THUMBNAIL_QUALITY`: 默认 `70`
+- `UPLOAD_STORAGE_LIMIT_MB`: 默认 `3072`
 - `FRONTEND_PORT`: 默认 `80`
 
 ## 3. 启动服务
@@ -44,6 +47,7 @@ docker compose up -d --build
   - `/api/v1/vision/analyze`: `10 req/min/IP`，`burst 5`
   - `/api/v1/vision/generate-alternatives`: `30 req/min/IP`，`burst 10`
 - 后端会校验上传图片真实格式，仅接受 `JPG/JPEG/PNG/WEBP/BMP/AVIF`。
+- 原图仅用于当前识别请求，识别完成后立即删除；历史页依赖的 `/uploads/...` 资源是服务端缩略图，并会按保留时间和总量阈值自动清理。
 
 ## 6. 常见操作
 

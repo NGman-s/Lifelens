@@ -3,7 +3,9 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +15,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
 
 import main
+from utils import cleanup
 
 
 class LifeLensApiTestCase(unittest.TestCase):
@@ -21,11 +24,18 @@ class LifeLensApiTestCase(unittest.TestCase):
         self.original_uploads_dir = main.UPLOADS_DIR
         self.original_max_upload_bytes = main.MAX_UPLOAD_SIZE_BYTES
         self.original_max_upload_mb = main.MAX_UPLOAD_SIZE_MB
+        self.original_thumbnail_retention_days = main.THUMBNAIL_RETENTION_DAYS
+        self.original_thumbnail_max_edge = main.THUMBNAIL_MAX_EDGE
+        self.original_thumbnail_quality = main.THUMBNAIL_QUALITY
+        self.original_upload_storage_limit_mb = main.UPLOAD_STORAGE_LIMIT_MB
+        self.original_upload_storage_limit_bytes = main.UPLOAD_STORAGE_LIMIT_BYTES
 
         main.UPLOADS_DIR = Path(self.temp_dir.name)
         for route in main.app.routes:
             if getattr(route, 'name', None) == 'uploads':
                 route.app.directory = str(main.UPLOADS_DIR)
+                if hasattr(route.app, 'all_directories'):
+                    route.app.all_directories = [str(main.UPLOADS_DIR)]
 
         self.client_context = TestClient(main.app)
         self.client = self.client_context.__enter__()
@@ -35,9 +45,16 @@ class LifeLensApiTestCase(unittest.TestCase):
         main.UPLOADS_DIR = self.original_uploads_dir
         main.MAX_UPLOAD_SIZE_BYTES = self.original_max_upload_bytes
         main.MAX_UPLOAD_SIZE_MB = self.original_max_upload_mb
+        main.THUMBNAIL_RETENTION_DAYS = self.original_thumbnail_retention_days
+        main.THUMBNAIL_MAX_EDGE = self.original_thumbnail_max_edge
+        main.THUMBNAIL_QUALITY = self.original_thumbnail_quality
+        main.UPLOAD_STORAGE_LIMIT_MB = self.original_upload_storage_limit_mb
+        main.UPLOAD_STORAGE_LIMIT_BYTES = self.original_upload_storage_limit_bytes
         for route in main.app.routes:
             if getattr(route, 'name', None) == 'uploads':
                 route.app.directory = str(main.UPLOADS_DIR)
+                if hasattr(route.app, 'all_directories'):
+                    route.app.all_directories = [str(main.UPLOADS_DIR)]
         self.temp_dir.cleanup()
 
     def _make_image_bytes(self, image_format='PNG'):
@@ -83,6 +100,11 @@ class LifeLensApiTestCase(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload['status'], 'ok')
         self.assertEqual(payload['service'], 'lifelens-api')
+        self.assertEqual(payload['max_upload_size_mb'], main.MAX_UPLOAD_SIZE_MB)
+        self.assertEqual(payload['thumbnail_retention_days'], main.THUMBNAIL_RETENTION_DAYS)
+        self.assertEqual(payload['thumbnail_max_edge'], main.THUMBNAIL_MAX_EDGE)
+        self.assertEqual(payload['thumbnail_quality'], main.THUMBNAIL_QUALITY)
+        self.assertEqual(payload['upload_storage_limit_mb'], main.UPLOAD_STORAGE_LIMIT_MB)
 
     def test_rejects_invalid_file_type(self):
         response = self.client.post(
@@ -129,8 +151,19 @@ class LifeLensApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         image_url = payload['data']['image_url']
+        image_expires_at = payload['data']['image_expires_at']
         saved_path = main.UPLOADS_DIR / Path(image_url).name
+        saved_files = list(main.UPLOADS_DIR.iterdir())
+        self.assertEqual(len(saved_files), 1)
         self.assertTrue(saved_path.exists())
+        self.assertIn(saved_path.suffix, {'.webp', '.jpg'})
+        self.assertGreater(
+            datetime.fromisoformat(image_expires_at.replace('Z', '+00:00')).timestamp(),
+            time.time(),
+        )
+
+        with Image.open(saved_path) as saved_image:
+            self.assertLessEqual(max(saved_image.size), main.THUMBNAIL_MAX_EDGE)
 
         image_response = self.client.get(image_url)
         self.assertEqual(image_response.status_code, 200)
@@ -188,6 +221,32 @@ class LifeLensApiTestCase(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload['message'], '爆改建议服务暂时不可用，请稍后重试')
         self.assertIn('trace_id', payload)
+
+    def test_cleanup_removes_old_files_and_enforces_storage_limit(self):
+        old_path = main.UPLOADS_DIR / 'old.webp'
+        mid_path = main.UPLOADS_DIR / 'mid.webp'
+        new_path = main.UPLOADS_DIR / 'new.webp'
+
+        old_path.write_bytes(b'a' * 10)
+        mid_path.write_bytes(b'b' * 10)
+        new_path.write_bytes(b'c' * 10)
+
+        now = time.time()
+        os.utime(old_path, (now - 3 * 86400, now - 3 * 86400))
+        os.utime(mid_path, (now - 100, now - 100))
+        os.utime(new_path, (now - 50, now - 50))
+
+        cleanup.enforce_storage_limit(str(main.UPLOADS_DIR), 15)
+        remaining_after_limit = sorted(path.name for path in main.UPLOADS_DIR.iterdir())
+        self.assertEqual(remaining_after_limit, ['new.webp'])
+
+        os.utime(new_path, (now - 3 * 86400, now - 3 * 86400))
+        self.assertTrue(new_path.exists())
+
+        import asyncio
+
+        asyncio.run(cleanup.cleanup_old_files(str(main.UPLOADS_DIR), days=1))
+        self.assertEqual(list(main.UPLOADS_DIR.iterdir()), [])
 
 
 if __name__ == '__main__':
