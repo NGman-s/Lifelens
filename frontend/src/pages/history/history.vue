@@ -72,11 +72,13 @@ const isImageExpired = (entry) => {
   return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
 };
 
+const normalizeHistoryImagePath = (path = '') => path.replace(/\.webp($|\?)/i, '.jpg$1');
+
 const getHistoryImageSrc = (entry) => {
   if (!entry.image || unavailableImages.value[entry.id] || isImageExpired(entry)) {
     return historyPlaceholder;
   }
-  return resolveImageUrl(entry.image);
+  return resolveImageUrl(normalizeHistoryImagePath(entry.image));
 };
 
 const handleImageError = (entryId) => {

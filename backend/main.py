@@ -85,13 +85,13 @@ THUMBNAIL_RETENTION_DAYS = _load_int(
 )
 THUMBNAIL_MAX_EDGE = _load_int("THUMBNAIL_MAX_EDGE", 512)
 THUMBNAIL_QUALITY = _load_int("THUMBNAIL_QUALITY", 70, min_value=1, max_value=100)
-THUMBNAIL_FALLBACK_JPEG_QUALITY = 75
 UPLOAD_STORAGE_LIMIT_MB = _load_int("UPLOAD_STORAGE_LIMIT_MB", 3072)
 UPLOAD_STORAGE_LIMIT_BYTES = UPLOAD_STORAGE_LIMIT_MB * 1024 * 1024
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _migrate_legacy_webp_thumbnails()
     stop_event = asyncio.Event()
     cleanup_task = asyncio.create_task(
         periodic_cleanup(
@@ -235,6 +235,35 @@ def _build_image_expiration():
     return _to_utc_iso(datetime.now(timezone.utc) + timedelta(days=THUMBNAIL_RETENTION_DAYS))
 
 
+def _migrate_legacy_webp_thumbnails():
+    migrated_count = 0
+    for webp_path in UPLOADS_DIR.glob("*.webp"):
+        jpg_path = webp_path.with_suffix(".jpg")
+
+        if jpg_path.exists():
+            webp_path.unlink(missing_ok=True)
+            migrated_count += 1
+            continue
+
+        try:
+            with Image.open(webp_path) as source_image:
+                image = _prepare_thumbnail_image(source_image)
+                image.save(
+                    jpg_path,
+                    "JPEG",
+                    quality=THUMBNAIL_QUALITY,
+                    optimize=True,
+                    progressive=True,
+                )
+            webp_path.unlink(missing_ok=True)
+            migrated_count += 1
+        except Exception:
+            logger.exception("Failed to migrate legacy thumbnail %s", webp_path.name)
+
+    if migrated_count:
+        logger.info("Migrated %s legacy WebP thumbnails to JPEG", migrated_count)
+
+
 def _parse_user_context(raw_user_context):
     try:
         parsed = json.loads(raw_user_context)
@@ -290,25 +319,15 @@ def _create_thumbnail(source_path, trace_id):
         with Image.open(source_path) as source_image:
             image = _prepare_thumbnail_image(source_image)
             image.thumbnail((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE), RESAMPLING_LANCZOS)
-
-            webp_path = UPLOADS_DIR / f"{trace_id}.webp"
-            try:
-                image.save(
-                    webp_path,
-                    "WEBP",
-                    quality=THUMBNAIL_QUALITY,
-                    method=6,
-                )
-                return webp_path
-            except OSError:
-                jpeg_path = UPLOADS_DIR / f"{trace_id}.jpg"
-                image.save(
-                    jpeg_path,
-                    "JPEG",
-                    quality=THUMBNAIL_FALLBACK_JPEG_QUALITY,
-                    optimize=True,
-                )
-                return jpeg_path
+            jpeg_path = UPLOADS_DIR / f"{trace_id}.jpg"
+            image.save(
+                jpeg_path,
+                "JPEG",
+                quality=THUMBNAIL_QUALITY,
+                optimize=True,
+                progressive=True,
+            )
+            return jpeg_path
     except UploadValidationError:
         raise
     except Exception as exc:

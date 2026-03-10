@@ -156,7 +156,7 @@ class LifeLensApiTestCase(unittest.TestCase):
         saved_files = list(main.UPLOADS_DIR.iterdir())
         self.assertEqual(len(saved_files), 1)
         self.assertTrue(saved_path.exists())
-        self.assertIn(saved_path.suffix, {'.webp', '.jpg'})
+        self.assertEqual(saved_path.suffix, '.jpg')
         self.assertGreater(
             datetime.fromisoformat(image_expires_at.replace('Z', '+00:00')).timestamp(),
             time.time(),
@@ -221,6 +221,19 @@ class LifeLensApiTestCase(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload['message'], '爆改建议服务暂时不可用，请稍后重试')
         self.assertIn('trace_id', payload)
+
+    def test_migrate_legacy_webp_thumbnails_to_jpg(self):
+        legacy_webp_path = main.UPLOADS_DIR / 'legacy.webp'
+        legacy_webp_path.write_bytes(self._make_image_bytes('WEBP'))
+
+        main._migrate_legacy_webp_thumbnails()
+
+        migrated_jpg_path = main.UPLOADS_DIR / 'legacy.jpg'
+        self.assertFalse(legacy_webp_path.exists())
+        self.assertTrue(migrated_jpg_path.exists())
+
+        with Image.open(migrated_jpg_path) as migrated_image:
+            self.assertEqual(migrated_image.format, 'JPEG')
 
     def test_cleanup_removes_old_files_and_enforces_storage_limit(self):
         old_path = main.UPLOADS_DIR / 'old.webp'
