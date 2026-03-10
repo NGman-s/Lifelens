@@ -253,7 +253,6 @@ def _migrate_legacy_webp_thumbnails():
                     "JPEG",
                     quality=THUMBNAIL_QUALITY,
                     optimize=True,
-                    progressive=True,
                 )
             webp_path.unlink(missing_ok=True)
             migrated_count += 1
@@ -325,7 +324,6 @@ def _create_thumbnail(source_path, trace_id):
                 "JPEG",
                 quality=THUMBNAIL_QUALITY,
                 optimize=True,
-                progressive=True,
             )
             return jpeg_path
     except UploadValidationError:
