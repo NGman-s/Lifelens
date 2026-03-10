@@ -313,12 +313,20 @@ def _prepare_thumbnail_image(source_image):
     return image
 
 
+def _build_thumbnail_path(trace_id):
+    return UPLOADS_DIR / f"{trace_id}.jpg"
+
+
+def _build_source_upload_path(trace_id, detected_format):
+    return UPLOADS_DIR / f"{trace_id}_source{ALLOWED_IMAGE_FORMATS[detected_format]}"
+
+
 def _create_thumbnail(source_path, trace_id):
     try:
         with Image.open(source_path) as source_image:
             image = _prepare_thumbnail_image(source_image)
             image.thumbnail((THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE), RESAMPLING_LANCZOS)
-            jpeg_path = UPLOADS_DIR / f"{trace_id}.jpg"
+            jpeg_path = _build_thumbnail_path(trace_id)
             image.save(
                 jpeg_path,
                 "JPEG",
@@ -358,7 +366,7 @@ async def _store_upload_file(upload_file: UploadFile, trace_id: str):
             raise UploadValidationError("上传文件不能为空", 400)
 
         detected_format = _detect_image_format(temp_path)
-        final_path = UPLOADS_DIR / f"{trace_id}{ALLOWED_IMAGE_FORMATS[detected_format]}"
+        final_path = _build_source_upload_path(trace_id, detected_format)
         temp_path.replace(final_path)
         return final_path
     except UploadValidationError:

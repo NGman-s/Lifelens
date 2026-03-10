@@ -157,6 +157,7 @@ class LifeLensApiTestCase(unittest.TestCase):
         self.assertEqual(len(saved_files), 1)
         self.assertTrue(saved_path.exists())
         self.assertEqual(saved_path.suffix, '.jpg')
+        self.assertNotIn('_source', saved_path.name)
         self.assertGreater(
             datetime.fromisoformat(image_expires_at.replace('Z', '+00:00')).timestamp(),
             time.time(),
@@ -168,6 +169,42 @@ class LifeLensApiTestCase(unittest.TestCase):
         image_response = self.client.get(image_url)
         self.assertEqual(image_response.status_code, 200)
         self.assertTrue(image_response.content)
+
+    @patch.object(main, 'analyze_food_image', new_callable=AsyncMock)
+    def test_analyze_success_returns_accessible_image_url_for_jpeg_upload(self, analyze_mock):
+        analyze_mock.return_value = self._valid_analysis_result()
+
+        response = self.client.post(
+            '/api/v1/vision/analyze',
+            files={
+                'file': ('meal.jpg', io.BytesIO(self._make_image_bytes('JPEG')), 'image/jpeg')
+            },
+            data={'user_context': json.dumps(self._default_user_context())}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        image_url = payload['data']['image_url']
+        saved_path = main.UPLOADS_DIR / Path(image_url).name
+        saved_files = sorted(path.name for path in main.UPLOADS_DIR.iterdir())
+
+        self.assertEqual(saved_path.name, Path(image_url).name)
+        self.assertEqual(saved_path.suffix, '.jpg')
+        self.assertEqual(saved_files, [saved_path.name])
+        self.assertTrue(saved_path.exists())
+
+        image_response = self.client.get(image_url)
+        self.assertEqual(image_response.status_code, 200)
+        self.assertTrue(image_response.content)
+
+    def test_source_upload_path_differs_from_thumbnail_path_for_jpeg(self):
+        trace_id = 'sample-trace'
+        source_path = main._build_source_upload_path(trace_id, 'JPEG')
+        thumbnail_path = main._build_thumbnail_path(trace_id)
+
+        self.assertEqual(source_path.name, 'sample-trace_source.jpg')
+        self.assertEqual(thumbnail_path.name, 'sample-trace.jpg')
+        self.assertNotEqual(source_path, thumbnail_path)
 
     @patch.object(main, 'analyze_food_image', new_callable=AsyncMock)
     def test_analyze_upstream_error_is_sanitized_and_cleans_upload(self, analyze_mock):
