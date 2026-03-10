@@ -55,6 +55,15 @@ H5 开发环境默认使用同源相对路径，并通过 `Vite proxy` 将 `/api
 VITE_API_BASE_URL=http://localhost:8080
 ```
 
+APK / 原生 App 打包时必须提供 `VITE_API_BASE_URL`，且必须是带协议的绝对地址；H5 的相对路径代理在原生 App 中不可用。推荐示例：
+
+```bash
+VITE_API_BASE_URL=https://example.com
+VITE_API_BASE_URL=http://1.2.3.4:8080
+```
+
+如果不设置该值，H5 可能仍然正常，但 APK 中的 `uni.uploadFile` / `uni.request` 会直接失败。
+
 ## Docker 部署
 
 ```bash

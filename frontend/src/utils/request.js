@@ -1,15 +1,23 @@
-const LOCAL_BACKEND_ORIGIN = 'http://localhost:8080';
-const SERVER_PATH_PREFIXES = ['/api', '/uploads'];
+import {
+  SERVER_PATH_PREFIXES,
+  buildServerUrlWithBaseUrl,
+  hasProtocol,
+  normalizeBaseUrl,
+  resolveApiBaseUrl,
+} from './request-config.mjs';
 
-const normalizeBaseUrl = (value = '') => value.trim().replace(/\/+$/, '');
-const hasProtocol = (value = '') => /^[a-z][a-z0-9+.-]*:/i.test(value);
-const ensureLeadingSlash = (value = '') => (value.startsWith('/') ? value : `/${value}`);
+const LOCAL_BACKEND_ORIGIN = 'http://localhost:8080';
 
 const envBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || '');
 let defaultBaseUrl = '';
+let requireAbsoluteBaseUrl = false;
 
 // #ifndef H5
 defaultBaseUrl = import.meta.env.DEV ? LOCAL_BACKEND_ORIGIN : '';
+// #endif
+
+// #ifdef APP-PLUS
+requireAbsoluteBaseUrl = !import.meta.env.DEV;
 // #endif
 
 const BASE_URL = envBaseUrl || defaultBaseUrl;
@@ -25,16 +33,24 @@ const parsePayload = (raw) => {
   }
 };
 
-const buildServerUrl = (path) => {
-  const normalizedPath = ensureLeadingSlash(path || '');
-  return BASE_URL ? `${BASE_URL}${normalizedPath}` : normalizedPath;
-};
+const resolveRuntimeBaseUrl = () =>
+  resolveApiBaseUrl({
+    envBaseUrl,
+    defaultBaseUrl,
+    requireAbsoluteBaseUrl
+  });
+
+const buildServerUrl = (path) => buildServerUrlWithBaseUrl(resolveRuntimeBaseUrl(), path);
 
 const resolveImageUrl = (path) => {
   if (!path) return '';
   if (hasProtocol(path)) return path;
   if (SERVER_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))) {
-    return buildServerUrl(path);
+    try {
+      return buildServerUrl(path);
+    } catch (error) {
+      return path;
+    }
   }
   return path;
 };
@@ -79,6 +95,7 @@ const request = (options) => {
         let message = '网络连接超时';
         if (err.errMsg && err.errMsg.includes('abort')) message = '请求已取消';
         if (err.errMsg && err.errMsg.includes('timeout')) message = '连接服务器超时';
+        if (err.errMsg && err.errMsg.includes('statusCode: null')) message = '网络连接失败，请检查后端地址、服务器状态或 Android 网络权限';
         reject({
           statusCode: 0,
           code: 0,
@@ -114,10 +131,13 @@ const uploadFile = (options) => {
         }));
       },
       fail: (err) => {
+        let message = err.errMsg || '上传失败';
+        if (err.errMsg && err.errMsg.includes('timeout')) message = '连接服务器超时';
+        if (err.errMsg && err.errMsg.includes('statusCode: null')) message = '上传失败，请检查后端地址、服务器状态或 Android 网络权限';
         reject({
           statusCode: 0,
           code: 0,
-          message: err.errMsg || '上传失败',
+          message,
           traceId: '',
           payload: null,
           originalError: err
