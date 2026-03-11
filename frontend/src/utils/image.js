@@ -29,6 +29,14 @@ const CAMERA_MODULE_ERROR_PATTERNS = [
   /not.*(include|found|exist|packag|avail).*(camera|plus\.camera)/
 ];
 
+const CHOOSE_IMAGE_CANCEL_PATTERNS = [
+  /cancel$/,
+  /cancelled/,
+  /user cancelled/,
+  /用户取消/,
+  /resultcode is wrong/
+];
+
 /**
  * Capture an image from camera or choose from gallery
  * @param {string[]} sourceType
@@ -58,6 +66,21 @@ export const chooseImage = (sourceType = ['camera', 'album']) => {
 export const isCameraModuleUnavailableError = (error) => {
   const message = getErrorMessage(error);
   return CAMERA_MODULE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+};
+
+/**
+ * Detects whether chooseImage failed because the user cancelled the picker/camera flow.
+ * Covers App 端相机返回时的 "resultCode is wrong" 特殊情况。
+ * @param {Error|Object|string} error
+ * @returns {boolean}
+ */
+export const isChooseImageCanceledError = (error) => {
+  if (typeof error === 'string') {
+    return CHOOSE_IMAGE_CANCEL_PATTERNS.some((pattern) => pattern.test(error.toLowerCase()));
+  }
+
+  const message = getErrorMessage(error);
+  return CHOOSE_IMAGE_CANCEL_PATTERNS.some((pattern) => pattern.test(message));
 };
 
 /**
@@ -93,5 +116,6 @@ export const compressImage = (src, quality = 60) => {
 export default {
   chooseImage,
   isCameraModuleUnavailableError,
+  isChooseImageCanceledError,
   compressImage
 };

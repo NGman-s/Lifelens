@@ -37,7 +37,12 @@
 import { onUnmounted, ref } from 'vue';
 import { onHide, onUnload } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/user';
-import { chooseImage, compressImage, isCameraModuleUnavailableError } from '@/utils/image';
+import {
+  chooseImage,
+  compressImage,
+  isCameraModuleUnavailableError,
+  isChooseImageCanceledError
+} from '@/utils/image';
 import { checkCameraPermission, checkGalleryPermission } from '@/utils/permission';
 import Api, { formatRequestError } from '@/utils/request';
 import ResultOverlay from '@/components/ResultOverlay.vue';
@@ -100,6 +105,14 @@ const showRequestError = (error, fallbackMessage) => {
   });
 };
 
+const showMediaAccessError = (error, fallbackMessage) => {
+  if (isChooseImageCanceledError(error)) {
+    return;
+  }
+
+  showRequestError(error, fallbackMessage);
+};
+
 const startStageTimer = () => {
   clearStageTimer();
   stageTimer = setInterval(() => {
@@ -130,15 +143,6 @@ const ensureMediaPermission = async () => {
   }
 
   return permissionState;
-};
-
-const isChooseImageCanceled = (error) => {
-  const message = [error?.errMsg, error?.message]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  return message.includes('cancel') || message.includes('取消');
 };
 
 const promptAlbumFallback = () => {
@@ -181,13 +185,13 @@ const handleCapture = async () => {
     const path = await chooseImage(['camera', 'album']);
     await processImage(path);
   } catch (error) {
-    if (isChooseImageCanceled(error)) {
+    if (isChooseImageCanceledError(error)) {
       return;
     }
 
     if (isCameraModuleUnavailableError(error)) {
       if (!permissionState.hasGalleryPermission) {
-        showRequestError(error, '当前安装包未包含相机模块，且相册权限不可用');
+        showMediaAccessError(error, '当前安装包未包含相机模块，且相册权限不可用');
         return;
       }
 
@@ -198,15 +202,15 @@ const handleCapture = async () => {
         }
         await processImage(fallbackPath);
       } catch (fallbackError) {
-        if (isChooseImageCanceled(fallbackError)) {
+        if (isChooseImageCanceledError(fallbackError)) {
           return;
         }
-        showRequestError(fallbackError, '无法打开相册');
+        showMediaAccessError(fallbackError, '无法打开相册');
       }
       return;
     }
 
-    showRequestError(error, '无法打开相机或相册');
+    showMediaAccessError(error, '无法打开相机或相册');
   }
 };
 
