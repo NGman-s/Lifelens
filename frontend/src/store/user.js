@@ -10,9 +10,16 @@ const defaultProfile = {
   health_conditions: []
 };
 
+const ALLOWED_GENDERS = ['male', 'female'];
+
+const normalizeProfile = (profile = {}) => ({
+  ...profile,
+  gender: ALLOWED_GENDERS.includes(profile.gender) ? profile.gender : defaultProfile.gender
+});
+
 export const useUserStore = defineStore('user', {
   state: () => ({
-    profile: { ...defaultProfile, ...uni.getStorageSync('user_profile') },
+    profile: normalizeProfile({ ...defaultProfile, ...uni.getStorageSync('user_profile') }),
     history: uni.getStorageSync('diet_history') || []
   }),
   getters: {
@@ -61,7 +68,7 @@ export const useUserStore = defineStore('user', {
   },
   actions: {
     updateProfile(newProfile) {
-      this.profile = { ...this.profile, ...newProfile };
+      this.profile = normalizeProfile({ ...this.profile, ...newProfile });
       uni.setStorageSync('user_profile', this.profile);
     },
     addHistoryEntry(entry) {

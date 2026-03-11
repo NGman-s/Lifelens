@@ -12,7 +12,7 @@
           <text class="item-label">性别</text>
           <picker
             @change="handleGenderChange"
-            :value="genders.findIndex(g => g.value === profile.gender)"
+            :value="currentGenderIndex"
             :range="genders"
             range-key="label"
             class="picker-container"
@@ -172,8 +172,7 @@ const goals = [
 
 const genders = [
   { label: '男', value: 'male' },
-  { label: '女', value: 'female' },
-  { label: '其他', value: 'other' }
+  { label: '女', value: 'female' }
 ];
 
 const activityLevels = [
@@ -200,7 +199,12 @@ const currentGoalLabel = computed(() => {
 
 const currentGenderLabel = computed(() => {
   const g = genders.find(i => i.value === profile.value.gender);
-  return g ? g.label : '请选择';
+  return g ? g.label : genders[0].label;
+});
+
+const currentGenderIndex = computed(() => {
+  const index = genders.findIndex(g => g.value === profile.value.gender);
+  return index > -1 ? index : 0;
 });
 
 const currentActivityLabel = computed(() => {
