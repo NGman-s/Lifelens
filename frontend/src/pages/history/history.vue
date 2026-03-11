@@ -18,52 +18,93 @@
           <text class="empty-text">暂无记录</text>
         </view>
 
-        <view v-for="entry in history" :key="entry.id" class="history-card" @longpress="handleLongPress(entry)">
+        <view
+          v-for="entry in history"
+          :key="entry.id"
+          class="history-card"
+          :class="{ 'text-only': !isHistoryImageAvailable(entry) }"
+          @tap="openDetail(entry)"
+          @longpress.stop="handleLongPress(entry)"
+        >
           <image
+            v-if="isHistoryImageAvailable(entry)"
             :src="getHistoryImageSrc(entry)"
             mode="aspectFill"
             class="card-image"
             @error="handleImageError(entry.id)"
           ></image>
-          <view class="card-content">
+
+          <view class="card-content" :class="{ 'no-image': !isHistoryImageAvailable(entry) }">
             <view class="card-header">
-              <text class="card-title">{{ entry.result?.main_name || entry.result?.items?.[0]?.name || '未知菜品' }}</text>
+              <text class="card-title">{{ getEntryTitle(entry) }}</text>
               <text class="card-time">{{ formatDate(entry.timestamp) }}</text>
             </view>
-            <view class="card-summary">{{ entry.result?.total_analysis?.summary || '暂无分析摘要' }}</view>
+
+            <view v-if="!isHistoryImageAvailable(entry)" class="text-only-badge">
+              <text class="text-only-badge-text">仅文本存档</text>
+            </view>
+
+            <view class="card-summary">{{ getEntrySummary(entry) }}</view>
+
             <view class="card-footer">
-              <view class="traffic-dot" :class="entry.result?.total_traffic_light || entry.result?.items?.[0]?.traffic_light"></view>
-              <text class="calories-text">{{ entry.result?.total_calories || entry.result?.items?.[0]?.calories || 0 }} kcal</text>
+              <view class="card-footer-main">
+                <view class="traffic-dot" :class="getEntryTrafficLight(entry)"></view>
+                <text class="calories-text">{{ getEntryCalories(entry) }} kcal</text>
+              </view>
+              <text class="detail-link">点击查看详情</text>
             </view>
           </view>
         </view>
       </view>
     </view>
 
+    <HistoryDetailSheet
+      :visible="detailVisible"
+      :entry="activeEntry"
+      :image-src="activeEntryImageSrc"
+      :image-available="activeEntryHasImage"
+      @close="closeDetail"
+      @image-error="handleActiveEntryImageError"
+    />
+
     <BottomNav current="history" />
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import TrendChart from '@/components/TrendChart.vue';
 import BottomNav from '@/components/BottomNav.vue';
+import HistoryDetailSheet from '@/components/HistoryDetailSheet.vue';
 import { useUserStore } from '@/store/user';
 import { resolveImageUrl } from '@/utils/request';
-import historyPlaceholder from '@/static/history-placeholder.svg';
 
 const userStore = useUserStore();
 const { history, weeklyStats } = storeToRefs(userStore);
+
 const unavailableImages = ref({});
+const detailVisible = ref(false);
+const activeEntry = ref(null);
 
 const formatDate = (isoString) => {
   const date = new Date(isoString);
   return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 };
 
+const getEntryResult = (entry) => entry?.result || {};
+const getPrimaryItem = (entry) => getEntryResult(entry).items?.[0] || {};
+
+const getEntryTitle = (entry) => getEntryResult(entry).main_name || getPrimaryItem(entry).name || '未知菜品';
+const getEntrySummary = (entry) => getEntryResult(entry).total_analysis?.summary || '暂无分析摘要';
+const getEntryCalories = (entry) => getEntryResult(entry).total_calories || getPrimaryItem(entry).calories || 0;
+const getEntryTrafficLight = (entry) => {
+  const trafficLight = (getEntryResult(entry).total_traffic_light || getPrimaryItem(entry).traffic_light || 'yellow').toLowerCase();
+  return ['green', 'yellow', 'red'].includes(trafficLight) ? trafficLight : 'yellow';
+};
+
 const isImageExpired = (entry) => {
-  const expiresAt = entry.result?.image_expires_at;
+  const expiresAt = getEntryResult(entry).image_expires_at;
   if (!expiresAt) {
     return false;
   }
@@ -74,18 +115,69 @@ const isImageExpired = (entry) => {
 
 const normalizeHistoryImagePath = (path = '') => path.replace(/\.webp($|\?)/i, '.jpg$1');
 
-const getHistoryImageSrc = (entry) => {
-  if (!entry.image || unavailableImages.value[entry.id] || isImageExpired(entry)) {
-    return historyPlaceholder;
+const markImageUnavailable = (entryId) => {
+  if (!entryId || unavailableImages.value[entryId]) {
+    return;
   }
-  return resolveImageUrl(normalizeHistoryImagePath(entry.image));
-};
 
-const handleImageError = (entryId) => {
   unavailableImages.value = {
     ...unavailableImages.value,
     [entryId]: true
   };
+};
+
+const isHistoryImageAvailable = (entry) => {
+  if (!entry?.image || unavailableImages.value[entry.id] || isImageExpired(entry)) {
+    return false;
+  }
+
+  return true;
+};
+
+const getHistoryImageSrc = (entry) => {
+  if (!isHistoryImageAvailable(entry)) {
+    return '';
+  }
+
+  return resolveImageUrl(normalizeHistoryImagePath(entry.image));
+};
+
+const activeEntryHasImage = computed(() => {
+  if (!activeEntry.value) {
+    return false;
+  }
+
+  return isHistoryImageAvailable(activeEntry.value);
+});
+
+const activeEntryImageSrc = computed(() => {
+  if (!activeEntryHasImage.value) {
+    return '';
+  }
+
+  return getHistoryImageSrc(activeEntry.value);
+});
+
+const openDetail = (entry) => {
+  activeEntry.value = entry;
+  detailVisible.value = true;
+};
+
+const closeDetail = () => {
+  detailVisible.value = false;
+  activeEntry.value = null;
+};
+
+const handleImageError = (entryId) => {
+  markImageUnavailable(entryId);
+};
+
+const handleActiveEntryImageError = () => {
+  if (!activeEntry.value?.id) {
+    return;
+  }
+
+  markImageUnavailable(activeEntry.value.id);
 };
 
 const handleClear = () => {
@@ -95,6 +187,7 @@ const handleClear = () => {
     confirmColor: '#FF3B30',
     success: (res) => {
       if (res.confirm) {
+        closeDetail();
         userStore.clearHistory();
       }
     }
@@ -107,6 +200,9 @@ const handleLongPress = (entry) => {
     itemColor: '#FF3B30',
     success: (res) => {
       if (res.tapIndex === 0) {
+        if (activeEntry.value?.id === entry.id) {
+          closeDetail();
+        }
         userStore.deleteHistoryEntry(entry.id);
         uni.showToast({
           title: '已删除',
@@ -116,6 +212,21 @@ const handleLongPress = (entry) => {
     }
   });
 };
+
+watch(
+  history,
+  (entries) => {
+    if (!activeEntry.value) {
+      return;
+    }
+
+    const exists = entries.some((entry) => entry.id === activeEntry.value.id);
+    if (!exists) {
+      closeDetail();
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <style lang="scss" scoped>
@@ -144,7 +255,7 @@ const handleLongPress = (entry) => {
 
 .clear-text {
   font-size: 13px;
-  color: #FF3B30;
+  color: #ff3b30;
   font-weight: 500;
 }
 
@@ -153,64 +264,115 @@ const handleLongPress = (entry) => {
   border-radius: 16px;
   padding: 16px;
   margin-bottom: 24px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
 }
 
 .history-card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px;
-  margin-bottom: 16px;
   display: flex;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  align-items: stretch;
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.94), transparent 36%),
+    linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+
+  &:active {
+    transform: scale(0.985);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  &.text-only {
+    padding: 16px;
+  }
 }
 
 .card-image {
-  width: 80px;
-  height: 80px;
-  border-radius: 12px;
-  background: #f5f5f7;
+  width: 84px;
+  height: 84px;
+  border-radius: 14px;
+  background: #eef2f7;
   flex-shrink: 0;
 }
 
 .card-content {
   flex: 1;
+  min-width: 0;
   margin-left: 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+
+  &.no-image {
+    margin-left: 0;
+  }
 }
 
 .card-header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: baseline;
+  gap: 12px;
 }
 
 .card-title {
+  flex: 1;
+  min-width: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: #172033;
+  line-height: 1.35;
 }
 
 .card-time {
+  flex-shrink: 0;
   font-size: 12px;
-  color: #86868b;
+  color: #8e96a3;
+}
+
+.text-only-badge {
+  margin-top: 8px;
+}
+
+.text-only-badge-text {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff4e8;
+  color: #c56f32;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .card-summary {
+  margin: 8px 0 10px;
   font-size: 13px;
-  color: #48484a;
-  margin: 4px 0;
+  line-height: 1.5;
+  color: #4d5a70;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
   overflow: hidden;
 }
 
+.history-card.text-only .card-summary {
+  -webkit-line-clamp: 2;
+}
+
 .card-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-footer-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .traffic-dot {
@@ -219,15 +381,30 @@ const handleLongPress = (entry) => {
   border-radius: 50%;
   margin-right: 6px;
 
-  &.green { background: #34C759; }
-  &.yellow { background: #FF9500; }
-  &.red { background: #FF3B30; }
+  &.green {
+    background: #34c759;
+  }
+
+  &.yellow {
+    background: #ff9500;
+  }
+
+  &.red {
+    background: #ff3b30;
+  }
 }
 
 .calories-text {
   font-size: 12px;
   font-weight: 500;
-  color: #86868b;
+  color: #7b8796;
+}
+
+.detail-link {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5a6b84;
 }
 
 .empty-state {
