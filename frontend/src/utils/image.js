@@ -2,9 +2,36 @@
  * Camera and Image Processing Utilities
  */
 
+const getErrorMessage = (error) => {
+  if (!error) {
+    return '';
+  }
+
+  return [
+    error.errMsg,
+    error.message,
+    error.code,
+    error.reason
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const CAMERA_MODULE_ERROR_PATTERNS = [
+  /未打包.*camera/,
+  /camera.*未打包/,
+  /camera.*模块/,
+  /module.*camera/,
+  /plus\.camera/,
+  /getcamera/,
+  /camera.*not.*(include|found|exist|packag|avail)/,
+  /not.*(include|found|exist|packag|avail).*(camera|plus\.camera)/
+];
+
 /**
  * Capture an image from camera or choose from gallery
- * @param {Object} options
+ * @param {string[]} sourceType
  * @returns {Promise<string>} - temp file path of the chosen image
  */
 export const chooseImage = (sourceType = ['camera', 'album']) => {
@@ -21,6 +48,16 @@ export const chooseImage = (sourceType = ['camera', 'album']) => {
       }
     });
   });
+};
+
+/**
+ * Detects whether the native camera module is missing from the packaged app.
+ * @param {Error|Object} error
+ * @returns {boolean}
+ */
+export const isCameraModuleUnavailableError = (error) => {
+  const message = getErrorMessage(error);
+  return CAMERA_MODULE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 };
 
 /**
@@ -55,5 +92,6 @@ export const compressImage = (src, quality = 60) => {
 
 export default {
   chooseImage,
+  isCameraModuleUnavailableError,
   compressImage
 };

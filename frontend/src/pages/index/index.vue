@@ -37,7 +37,7 @@
 import { onUnmounted, ref } from 'vue';
 import { onHide, onUnload } from '@dcloudio/uni-app';
 import { useUserStore } from '@/store/user';
-import { chooseImage, compressImage } from '@/utils/image';
+import { chooseImage, compressImage, isCameraModuleUnavailableError } from '@/utils/image';
 import { checkCameraPermission, checkGalleryPermission } from '@/utils/permission';
 import Api, { formatRequestError } from '@/utils/request';
 import ResultOverlay from '@/components/ResultOverlay.vue';
@@ -110,35 +110,102 @@ const startStageTimer = () => {
 };
 
 const ensureMediaPermission = async () => {
-  let hasCameraPermission = false;
-  let hasGalleryPermission = false;
+  const permissionState = {
+    hasCameraPermission: false,
+    hasGalleryPermission: false
+  };
 
   try {
     await checkCameraPermission();
-    hasCameraPermission = true;
+    permissionState.hasCameraPermission = true;
   } catch (error) {
-    hasCameraPermission = false;
+    permissionState.hasCameraPermission = false;
   }
 
   try {
     await checkGalleryPermission();
-    hasGalleryPermission = true;
+    permissionState.hasGalleryPermission = true;
   } catch (error) {
-    hasGalleryPermission = false;
+    permissionState.hasGalleryPermission = false;
   }
 
-  return hasCameraPermission || hasGalleryPermission;
+  return permissionState;
+};
+
+const isChooseImageCanceled = (error) => {
+  const message = [error?.errMsg, error?.message]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return message.includes('cancel') || message.includes('取消');
+};
+
+const promptAlbumFallback = () => {
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: '相机暂不可用',
+      content: '当前安装包未包含 Camera&Gallery 模块，本次将改为从相册选择图片。修复后请重新打包 APK。',
+      confirmText: '打开相册',
+      cancelText: '取消',
+      success: (res) => {
+        resolve(Boolean(res.confirm));
+      },
+      fail: () => resolve(false)
+    });
+  });
+};
+
+const handleAlbumFallback = async () => {
+  const shouldOpenAlbum = await promptAlbumFallback();
+  if (!shouldOpenAlbum) {
+    return null;
+  }
+
+  return chooseImage(['album']);
 };
 
 const handleCapture = async () => {
+  const permissionState = await ensureMediaPermission();
+
+  if (!permissionState.hasCameraPermission && !permissionState.hasGalleryPermission) {
+    uni.showToast({
+      title: '请先授予相机或相册权限',
+      icon: 'none',
+      duration: 3000
+    });
+    return;
+  }
+
   try {
-    await ensureMediaPermission();
     const path = await chooseImage(['camera', 'album']);
     await processImage(path);
   } catch (error) {
-    if (error?.errMsg && error.errMsg.includes('cancel')) {
+    if (isChooseImageCanceled(error)) {
       return;
     }
+
+    if (isCameraModuleUnavailableError(error)) {
+      if (!permissionState.hasGalleryPermission) {
+        showRequestError(error, '当前安装包未包含相机模块，且相册权限不可用');
+        return;
+      }
+
+      try {
+        const fallbackPath = await handleAlbumFallback();
+        if (!fallbackPath) {
+          return;
+        }
+        await processImage(fallbackPath);
+      } catch (fallbackError) {
+        if (isChooseImageCanceled(fallbackError)) {
+          return;
+        }
+        showRequestError(fallbackError, '无法打开相册');
+      }
+      return;
+    }
+
     showRequestError(error, '无法打开相机或相册');
   }
 };

@@ -2,7 +2,7 @@
     "name" : "LifeLens",
     "appid" : "__UNI__977E929",
     "description" : "AI原生生活助手",
-    "versionName" : "0.5",
+    "versionName" : "0.51",
     "versionCode" : 200,
     "transformPx" : false,
     "app-plus" : {
@@ -15,7 +15,9 @@
             "autoclose" : true,
             "delay" : 0
         },
-        "modules" : {},
+        "modules" : {
+            "Camera" : {}
+        },
         "distribute" : {
             "android" : {
                 "permissions" : [

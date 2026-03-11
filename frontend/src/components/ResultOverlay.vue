@@ -84,8 +84,21 @@
 
         <!-- Thought Process (Expandable/Optional) -->
         <view class="section-container" v-if="result.thought_process">
-          <view class="section-title small">识别逻辑</view>
-          <view class="thought-text">{{ result.thought_process }}</view>
+          <view class="thought-card">
+            <view class="thought-toggle" @click="toggleThought">
+              <view class="thought-toggle-copy">
+                <view class="section-title small compact">识别逻辑</view>
+                <text class="thought-toggle-hint">
+                  {{ isThoughtExpanded ? '点击收起' : '点击展开' }}
+                </text>
+              </view>
+              <text
+                class="thought-toggle-icon"
+                :class="{ expanded: isThoughtExpanded }"
+              >⌄</text>
+            </view>
+            <view v-if="isThoughtExpanded" class="thought-text">{{ result.thought_process }}</view>
+          </view>
         </view>
 
         <!-- AI Hack Section (New) -->
@@ -138,10 +151,10 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue';
+import { defineProps, defineEmits, ref, watch } from 'vue';
 import AIThoughtViewer from './AIThoughtViewer.vue';
 
-defineProps({
+const props = defineProps({
   visible: Boolean,
   loading: Boolean,
   result: Object,
@@ -151,6 +164,21 @@ defineProps({
 });
 
 const emit = defineEmits(['close', 'save', 'discard', 'generate-alternatives']);
+const isThoughtExpanded = ref(false);
+
+const toggleThought = () => {
+  if (!props.result?.thought_process) {
+    return;
+  }
+  isThoughtExpanded.value = !isThoughtExpanded.value;
+};
+
+watch(
+  () => [props.visible, props.loading, props.result?.thought_process],
+  () => {
+    isThoughtExpanded.value = false;
+  }
+);
 
 const handleHackClick = () => {
   emit('generate-alternatives');
@@ -411,6 +439,10 @@ const getTrafficLightLabel = (color) => {
     font-size: 13px;
     color: #86868B;
   }
+
+  &.compact {
+    margin-bottom: 0;
+  }
 }
 
 .analysis-card {
@@ -494,13 +526,46 @@ const getTrafficLightLabel = (color) => {
   font-size: 16px;
 }
 
+.thought-card {
+  background: #F9F9F9;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.thought-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.thought-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thought-toggle-hint {
+  font-size: 12px;
+  color: #A1A1A6;
+}
+
+.thought-toggle-icon {
+  font-size: 16px;
+  color: #86868B;
+  transform: rotate(0deg);
+  transition: transform 0.2s ease;
+
+  &.expanded {
+    transform: rotate(180deg);
+  }
+}
+
 .thought-text {
   font-size: 13px;
   line-height: 1.5;
   color: #86868B;
-  background: #F9F9F9;
-  padding: 12px;
-  border-radius: 8px;
+  padding: 0 12px 12px;
 }
 
 /* Action Area */
