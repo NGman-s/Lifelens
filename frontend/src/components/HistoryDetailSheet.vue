@@ -13,16 +13,17 @@
         <view class="sheet-handle"></view>
       </view>
 
-      <view
+      <scroll-view
         v-if="entry"
+        scroll-y
         class="sheet-content"
-        @wheel.stop
-        @touchmove.stop
+        :scroll-top="innerScrollTop"
+        @scroll="handleScroll"
       >
         <view class="detail-header">
           <view class="meta-row">
             <text class="meta-label">历史记录详情</text>
-            <text class="record-time">{{ formatDate(entry.timestamp) }}</text>
+            <text class="record-time">{{ formatDetailDate(entry.timestamp) }}</text>
           </view>
 
           <view class="title-row">
@@ -44,11 +45,7 @@
             <view class="nutrition-divider"></view>
 
             <view class="nutrition-tags">
-              <text
-                v-for="tag in primaryTags"
-                :key="tag"
-                class="tag-chip"
-              >{{ tag }}</text>
+              <text v-for="tag in primaryTags" :key="tag" class="tag-chip">{{ tag }}</text>
               <text v-if="primaryTags.length === 0" class="tag-chip muted">暂无标签</text>
             </view>
           </view>
@@ -57,7 +54,7 @@
         <view v-if="imageAvailable && imageSrc" class="section-container">
           <view class="section-title">记录图片</view>
           <view class="image-frame" @click="previewImage">
-            <image :src="imageSrc" mode="aspectFit" class="detail-image" @error="handleImageError"></image>
+            <image :src="imageSrc" mode="aspectFit" class="detail-image" lazy-load @error="handleImageError"></image>
           </view>
           <text class="image-caption">点击可放大查看当前保留的压缩图</text>
         </view>
@@ -138,13 +135,13 @@
         <view class="action-area">
           <button class="btn-close" @click="emit('close')">关闭</button>
         </view>
-      </view>
+      </scroll-view>
     </view>
   </view>
 </template>
 
 <script setup>
-import { computed, defineEmits, defineProps, onUnmounted, ref, watch } from 'vue';
+import { computed, defineEmits, defineProps, ref, watch } from 'vue';
 
 const props = defineProps({
   visible: Boolean,
@@ -156,18 +153,16 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  imageAvailable: Boolean
+  imageAvailable: Boolean,
+  scrollTop: {
+    type: Number,
+    default: 0
+  }
 });
 
 const emit = defineEmits(['close', 'image-error']);
 const isThoughtExpanded = ref(false);
-let restoreBodyOverflow = '';
-let restoreHtmlOverflow = '';
-let restoreBodyPosition = '';
-let restoreBodyTop = '';
-let restoreBodyWidth = '';
-let lockedScrollTop = 0;
-let isPageLocked = false;
+const innerScrollTop = ref(0);
 
 const result = computed(() => props.entry?.result || {});
 const primaryItem = computed(() => result.value.items?.[0] || {});
@@ -179,7 +174,7 @@ const trafficLight = computed(() => {
   return ['green', 'yellow', 'red'].includes(color) ? color : 'yellow';
 });
 
-const formatDate = (isoString) => {
+const formatDetailDate = (isoString) => {
   const date = new Date(isoString);
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -208,45 +203,8 @@ const handleImageError = () => {
   emit('image-error');
 };
 
-const setPageScrollLock = (locked) => {
-  if (typeof document === 'undefined') {
-    return;
-  }
-
-  const { body, documentElement } = document;
-
-  if (locked) {
-    if (isPageLocked) {
-      return;
-    }
-
-    lockedScrollTop = window.pageYOffset || documentElement.scrollTop || body.scrollTop || 0;
-    restoreBodyOverflow = body.style.overflow;
-    restoreHtmlOverflow = documentElement.style.overflow;
-    restoreBodyPosition = body.style.position;
-    restoreBodyTop = body.style.top;
-    restoreBodyWidth = body.style.width;
-
-    documentElement.style.overflow = 'hidden';
-    body.style.overflow = 'hidden';
-    body.style.position = 'fixed';
-    body.style.top = `-${lockedScrollTop}px`;
-    body.style.width = '100%';
-    isPageLocked = true;
-    return;
-  }
-
-  if (!isPageLocked) {
-    return;
-  }
-
-  body.style.overflow = restoreBodyOverflow;
-  documentElement.style.overflow = restoreHtmlOverflow;
-  body.style.position = restoreBodyPosition;
-  body.style.top = restoreBodyTop;
-  body.style.width = restoreBodyWidth;
-  window.scrollTo(0, lockedScrollTop);
-  isPageLocked = false;
+const handleScroll = (event) => {
+  innerScrollTop.value = event?.detail?.scrollTop || 0;
 };
 
 watch(
@@ -257,15 +215,12 @@ watch(
 );
 
 watch(
-  () => props.visible,
-  (visible) => {
-    setPageScrollLock(visible);
-  }
+  () => props.scrollTop,
+  (scrollTop) => {
+    innerScrollTop.value = scrollTop;
+  },
+  { immediate: true }
 );
-
-onUnmounted(() => {
-  setPageScrollLock(false);
-});
 
 const getTrafficLightLabel = (color) => {
   const map = {
@@ -289,11 +244,11 @@ const getTrafficLightLabel = (color) => {
   visibility: hidden;
   transition: visibility 0.3s;
   overscroll-behavior: contain;
+}
 
-  &.visible {
-    pointer-events: auto;
-    visibility: visible;
-  }
+.overlay-container.visible {
+  pointer-events: auto;
+  visibility: visible;
 }
 
 .backdrop {
@@ -301,8 +256,10 @@ const getTrafficLightLabel = (color) => {
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
   opacity: 0;
   animation: fadeIn 0.3s forwards;
+  will-change: opacity;
 }
 
 @keyframes fadeIn {
@@ -316,25 +273,26 @@ const getTrafficLightLabel = (color) => {
   bottom: 0;
   left: 0;
   width: 100%;
-  height: 85vh;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #ffffff 0%, #f9fafc 100%);
   border-radius: 24px 24px 0 0;
   box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.14);
-  transform: translateY(100%);
+  transform: translate3d(0, 100%, 0);
   transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   padding-bottom: env(safe-area-inset-bottom);
   overflow: hidden;
+  will-change: transform;
+}
 
-  &.slide-up {
-    transform: translateY(0);
-  }
+.bottom-sheet.slide-up {
+  transform: translate3d(0, 0, 0);
+}
 
-  &.danger-border {
-    border: 2px solid #ffb3ad;
-    box-shadow: 0 -12px 40px rgba(255, 59, 48, 0.16);
-  }
+.bottom-sheet.danger-border {
+  border: 2px solid #ffb3ad;
+  box-shadow: 0 -12px 40px rgba(255, 59, 48, 0.16);
 }
 
 .sheet-handle-bar {
@@ -356,11 +314,7 @@ const getTrafficLightLabel = (color) => {
 .sheet-content {
   flex: 1;
   width: 100%;
-  height: calc(85vh - 24px - env(safe-area-inset-bottom));
-  min-height: calc(85vh - 24px - env(safe-area-inset-bottom));
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .detail-header {
@@ -410,18 +364,18 @@ const getTrafficLightLabel = (color) => {
   font-size: 13px;
   font-weight: 600;
   color: #fff;
+}
 
-  &.green {
-    background: #34c759;
-  }
+.traffic-badge.green {
+  background: #34c759;
+}
 
-  &.yellow {
-    background: #ff9500;
-  }
+.traffic-badge.yellow {
+  background: #ff9500;
+}
 
-  &.red {
-    background: #ff3b30;
-  }
+.traffic-badge.red {
+  background: #ff3b30;
 }
 
 .nutrition-row {
@@ -439,10 +393,10 @@ const getTrafficLightLabel = (color) => {
   font-weight: 700;
   color: #172033;
   margin-right: 4px;
+}
 
-  &.text-danger {
-    color: #ff3b30;
-  }
+.nutri-value.text-danger {
+  color: #ff3b30;
 }
 
 .nutri-unit,
@@ -475,10 +429,10 @@ const getTrafficLightLabel = (color) => {
   color: #516076;
   font-size: 12px;
   font-weight: 500;
+}
 
-  &.muted {
-    color: #8e96a3;
-  }
+.tag-chip.muted {
+  color: #8e96a3;
 }
 
 .section-container {
@@ -490,15 +444,15 @@ const getTrafficLightLabel = (color) => {
   font-weight: 600;
   color: #172033;
   margin-bottom: 12px;
+}
 
-  &.small {
-    font-size: 13px;
-    color: #7b8796;
-  }
+.section-title.small {
+  font-size: 13px;
+  color: #7b8796;
+}
 
-  &.compact {
-    margin-bottom: 0;
-  }
+.section-title.compact {
+  margin-bottom: 0;
 }
 
 .image-frame {
@@ -563,36 +517,36 @@ const getTrafficLightLabel = (color) => {
   align-items: flex-start;
   padding: 16px;
   border-radius: 18px;
+}
 
-  &.red {
-    background: #fff2f2;
-    border: 1px solid #ff3b30;
+.warning-alert-card.red {
+  background: #fff2f2;
+  border: 1px solid #ff3b30;
+}
 
-    .warning-icon-large,
-    .warning-title {
-      color: #ff3b30;
-    }
-  }
+.warning-alert-card.yellow {
+  background: #fff8ef;
+  border: 1px solid #ff9500;
+}
 
-  &.yellow {
-    background: #fff8ef;
-    border: 1px solid #ff9500;
+.warning-alert-card.green {
+  background: #effbf1;
+  border: 1px solid #34c759;
+}
 
-    .warning-icon-large,
-    .warning-title {
-      color: #ff9500;
-    }
-  }
+.warning-alert-card.red .warning-icon-large,
+.warning-alert-card.red .warning-title {
+  color: #ff3b30;
+}
 
-  &.green {
-    background: #effbf1;
-    border: 1px solid #34c759;
+.warning-alert-card.yellow .warning-icon-large,
+.warning-alert-card.yellow .warning-title {
+  color: #ff9500;
+}
 
-    .warning-icon-large,
-    .warning-title {
-      color: #34c759;
-    }
-  }
+.warning-alert-card.green .warning-icon-large,
+.warning-alert-card.green .warning-title {
+  color: #34c759;
 }
 
 .warning-icon-large {
@@ -626,14 +580,14 @@ const getTrafficLightLabel = (color) => {
   font-size: 15px;
   line-height: 1.6;
   color: #172033;
+}
 
-  &.summary {
-    font-weight: 500;
-  }
+.analysis-text.summary {
+  font-weight: 500;
+}
 
-  &.suggestion {
-    color: #445066;
-  }
+.analysis-text.suggestion {
+  color: #445066;
 }
 
 .analysis-divider {
@@ -723,10 +677,10 @@ const getTrafficLightLabel = (color) => {
   color: #7b8796;
   transform: rotate(0deg);
   transition: transform 0.2s ease;
+}
 
-  &.expanded {
-    transform: rotate(180deg);
-  }
+.thought-toggle-icon.expanded {
+  transform: rotate(180deg);
 }
 
 .thought-text {

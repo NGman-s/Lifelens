@@ -1,68 +1,78 @@
 <template>
   <view class="page-container">
-    <view class="content-wrapper">
-      <view class="header">
-        <text class="title-large">饮食记录</text>
-        <view class="clear-btn" @tap="handleClear">
-          <text class="clear-text">清空</text>
-        </view>
-      </view>
-
-      <view class="chart-card">
-        <TrendChart :data="weeklyStats" />
-      </view>
-
-      <view class="history-list">
-        <view v-if="history.length === 0" class="empty-state">
-          <text class="empty-icon">📝</text>
-          <text class="empty-text">暂无记录</text>
+    <scroll-view
+      class="page-scroll"
+      scroll-y
+      :scroll-top="historyScrollTop"
+      :scroll-y="!detailVisible"
+      @scroll="handleHistoryScroll"
+    >
+      <view class="content-wrapper">
+        <view class="header">
+          <text class="title-large">饮食记录</text>
+          <view class="clear-btn" @tap="handleClear">
+            <text class="clear-text">清空</text>
+          </view>
         </view>
 
-        <view
-          v-for="entry in history"
-          :key="entry.id"
-          class="history-card"
-          :class="{ 'text-only': !isHistoryImageAvailable(entry) }"
-          @tap="openDetail(entry)"
-          @longpress.stop="handleLongPress(entry)"
-        >
-          <image
-            v-if="isHistoryImageAvailable(entry)"
-            :src="getHistoryImageSrc(entry)"
-            mode="aspectFill"
-            class="card-image"
-            @error="handleImageError(entry.id)"
-          ></image>
+        <view class="chart-card">
+          <TrendChart :data="weeklyStats" />
+        </view>
 
-          <view class="card-content" :class="{ 'no-image': !isHistoryImageAvailable(entry) }">
-            <view class="card-header">
-              <text class="card-title">{{ getEntryTitle(entry) }}</text>
-              <text class="card-time">{{ formatDate(entry.timestamp) }}</text>
-            </view>
+        <view class="history-list">
+          <view v-if="historyViewModels.length === 0" class="empty-state">
+            <text class="empty-icon">📝</text>
+            <text class="empty-text">暂无记录</text>
+          </view>
 
-            <view v-if="!isHistoryImageAvailable(entry)" class="text-only-badge">
-              <text class="text-only-badge-text">仅文本存档</text>
-            </view>
+          <view
+            v-for="entry in historyViewModels"
+            :key="entry.id"
+            class="history-card"
+            :class="{ 'text-only': !entry.imageAvailable }"
+            @tap="openDetail(entry.id)"
+            @longpress.stop="handleLongPress(entry.id)"
+          >
+            <image
+              v-if="entry.imageAvailable"
+              :src="entry.imageSrc"
+              mode="aspectFill"
+              class="card-image"
+              lazy-load
+              @error="handleImageError(entry.id)"
+            ></image>
 
-            <view class="card-summary">{{ getEntrySummary(entry) }}</view>
-
-            <view class="card-footer">
-              <view class="card-footer-main">
-                <view class="traffic-dot" :class="getEntryTrafficLight(entry)"></view>
-                <text class="calories-text">{{ getEntryCalories(entry) }} kcal</text>
+            <view class="card-content" :class="{ 'no-image': !entry.imageAvailable }">
+              <view class="card-header">
+                <text class="card-title">{{ entry.title }}</text>
+                <text class="card-time">{{ entry.timeLabel }}</text>
               </view>
-              <text class="detail-link">点击查看详情</text>
+
+              <view v-if="!entry.imageAvailable" class="text-only-badge">
+                <text class="text-only-badge-text">仅文本存档</text>
+              </view>
+
+              <view class="card-summary">{{ entry.summary }}</view>
+
+              <view class="card-footer">
+                <view class="card-footer-main">
+                  <view class="traffic-dot" :class="entry.trafficLight"></view>
+                  <text class="calories-text">{{ entry.calories }} kcal</text>
+                </view>
+                <text class="detail-link">点击查看详情</text>
+              </view>
             </view>
           </view>
         </view>
       </view>
-    </view>
+    </scroll-view>
 
     <HistoryDetailSheet
       :visible="detailVisible"
       :entry="activeEntry"
-      :image-src="activeEntryImageSrc"
-      :image-available="activeEntryHasImage"
+      :image-src="activeEntry?.imageSrc || ''"
+      :image-available="Boolean(activeEntry?.imageAvailable)"
+      :scroll-top="detailScrollTop"
       @close="closeDetail"
       @image-error="handleActiveEntryImageError"
     />
@@ -85,7 +95,9 @@ const { history, weeklyStats } = storeToRefs(userStore);
 
 const unavailableImages = ref({});
 const detailVisible = ref(false);
-const activeEntry = ref(null);
+const activeEntryId = ref('');
+const historyScrollTop = ref(0);
+const detailScrollTop = ref(0);
 
 const formatDate = (isoString) => {
   const date = new Date(isoString);
@@ -95,11 +107,8 @@ const formatDate = (isoString) => {
 const getEntryResult = (entry) => entry?.result || {};
 const getPrimaryItem = (entry) => getEntryResult(entry).items?.[0] || {};
 
-const getEntryTitle = (entry) => getEntryResult(entry).main_name || getPrimaryItem(entry).name || '未知菜品';
-const getEntrySummary = (entry) => getEntryResult(entry).total_analysis?.summary || '暂无分析摘要';
-const getEntryCalories = (entry) => getEntryResult(entry).total_calories || getPrimaryItem(entry).calories || 0;
-const getEntryTrafficLight = (entry) => {
-  const trafficLight = (getEntryResult(entry).total_traffic_light || getPrimaryItem(entry).traffic_light || 'yellow').toLowerCase();
+const normalizeTrafficLight = (value) => {
+  const trafficLight = String(value || 'yellow').toLowerCase();
   return ['green', 'yellow', 'red'].includes(trafficLight) ? trafficLight : 'yellow';
 };
 
@@ -126,46 +135,43 @@ const markImageUnavailable = (entryId) => {
   };
 };
 
-const isHistoryImageAvailable = (entry) => {
-  if (!entry?.image || unavailableImages.value[entry.id] || isImageExpired(entry)) {
-    return false;
-  }
+const historyViewModels = computed(() =>
+  history.value.map((entry) => {
+    const result = getEntryResult(entry);
+    const primaryItem = getPrimaryItem(entry);
+    const imageAvailable = Boolean(entry?.image) && !unavailableImages.value[entry.id] && !isImageExpired(entry);
 
-  return true;
-};
+    return {
+      ...entry,
+      result,
+      primaryItem,
+      title: result.main_name || primaryItem.name || '未知菜品',
+      summary: result.total_analysis?.summary || '暂无分析摘要',
+      calories: result.total_calories || primaryItem.calories || 0,
+      trafficLight: normalizeTrafficLight(result.total_traffic_light || primaryItem.traffic_light),
+      timeLabel: formatDate(entry.timestamp),
+      imageAvailable,
+      imageSrc: imageAvailable ? resolveImageUrl(normalizeHistoryImagePath(entry.image)) : ''
+    };
+  })
+);
 
-const getHistoryImageSrc = (entry) => {
-  if (!isHistoryImageAvailable(entry)) {
-    return '';
-  }
+const activeEntry = computed(() => historyViewModels.value.find((entry) => entry.id === activeEntryId.value) || null);
 
-  return resolveImageUrl(normalizeHistoryImagePath(entry.image));
-};
-
-const activeEntryHasImage = computed(() => {
-  if (!activeEntry.value) {
-    return false;
-  }
-
-  return isHistoryImageAvailable(activeEntry.value);
-});
-
-const activeEntryImageSrc = computed(() => {
-  if (!activeEntryHasImage.value) {
-    return '';
-  }
-
-  return getHistoryImageSrc(activeEntry.value);
-});
-
-const openDetail = (entry) => {
-  activeEntry.value = entry;
+const openDetail = (entryId) => {
+  activeEntryId.value = entryId;
+  detailScrollTop.value = 0;
   detailVisible.value = true;
 };
 
 const closeDetail = () => {
   detailVisible.value = false;
-  activeEntry.value = null;
+  detailScrollTop.value = 0;
+  activeEntryId.value = '';
+};
+
+const handleHistoryScroll = (event) => {
+  historyScrollTop.value = event?.detail?.scrollTop || 0;
 };
 
 const handleImageError = (entryId) => {
@@ -194,16 +200,16 @@ const handleClear = () => {
   });
 };
 
-const handleLongPress = (entry) => {
+const handleLongPress = (entryId) => {
   uni.showActionSheet({
     itemList: ['删除此记录'],
     itemColor: '#FF3B30',
     success: (res) => {
       if (res.tapIndex === 0) {
-        if (activeEntry.value?.id === entry.id) {
+        if (activeEntryId.value === entryId) {
           closeDetail();
         }
-        userStore.deleteHistoryEntry(entry.id);
+        userStore.deleteHistoryEntry(entryId);
         uni.showToast({
           title: '已删除',
           icon: 'none'
@@ -216,11 +222,11 @@ const handleLongPress = (entry) => {
 watch(
   history,
   (entries) => {
-    if (!activeEntry.value) {
+    if (!activeEntryId.value) {
       return;
     }
 
-    const exists = entries.some((entry) => entry.id === activeEntry.value.id);
+    const exists = entries.some((entry) => entry.id === activeEntryId.value);
     if (!exists) {
       closeDetail();
     }
@@ -231,12 +237,18 @@ watch(
 
 <style lang="scss" scoped>
 .page-container {
-  min-height: 100vh;
-  padding-bottom: calc(50px + env(safe-area-inset-bottom));
+  height: 100vh;
+  overflow: hidden;
+}
+
+.page-scroll {
+  height: calc(100vh - 50px - env(safe-area-inset-bottom));
 }
 
 .content-wrapper {
+  min-height: 100%;
   padding: 20px;
+  padding-bottom: 24px;
 }
 
 .header {
