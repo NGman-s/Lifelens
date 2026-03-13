@@ -323,16 +323,29 @@ const handleGenerateAlternatives = async () => {
   }
 };
 
-const handleSave = () => {
+const handleSave = async () => {
   if (!analysisResult.value) {
     return;
   }
-  const imagePath = analysisResult.value.image_url || capturedImage.value;
+
+  const savedResult = JSON.parse(JSON.stringify(analysisResult.value));
+  const imagePath = savedResult.image_url || capturedImage.value;
   userStore.addHistoryEntry({
     image: imagePath,
-    result: JSON.parse(JSON.stringify(analysisResult.value))
+    result: savedResult
   });
   closeOverlay();
+
+  try {
+    await userStore.syncDietRecord(savedResult);
+  } catch (error) {
+    console.warn('Failed to sync diet record', error);
+    uni.showToast({
+      title: '已保存到本地，本次未同步到好友动态',
+      icon: 'none',
+      duration: 3000
+    });
+  }
 };
 
 const handleDiscard = () => {

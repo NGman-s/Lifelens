@@ -9,3 +9,5 @@ python-dotenv
 Pillow
 pillow-avif-plugin
 aiofiles
+qrcode[pil]
+tzdata

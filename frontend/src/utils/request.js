@@ -21,6 +21,7 @@ requireAbsoluteBaseUrl = !import.meta.env.DEV;
 // #endif
 
 const BASE_URL = envBaseUrl || defaultBaseUrl;
+const USER_ID_STORAGE_KEY = 'lifelens_user_id';
 
 const parsePayload = (raw) => {
   if (typeof raw !== 'string') {
@@ -41,6 +42,25 @@ const resolveRuntimeBaseUrl = () =>
   });
 
 const buildServerUrl = (path) => buildServerUrlWithBaseUrl(resolveRuntimeBaseUrl(), path);
+
+const getStoredUserId = () => {
+  try {
+    return String(uni.getStorageSync(USER_ID_STORAGE_KEY) || '').trim();
+  } catch (error) {
+    return '';
+  }
+};
+
+const buildRequestHeaders = (header = {}, includeUserId = true) => {
+  const identityHeader = includeUserId && getStoredUserId()
+    ? { 'X-User-Id': getStoredUserId() }
+    : {};
+
+  return {
+    ...identityHeader,
+    ...(header || {})
+  };
+};
 
 const resolveImageUrl = (path) => {
   if (!path) return '';
@@ -77,7 +97,7 @@ const request = (options) => {
       url: buildServerUrl(options.url),
       method: options.method || 'GET',
       data: options.data || {},
-      header: options.header || {},
+      header: buildRequestHeaders(options.header, options.includeUserId !== false),
       timeout: options.timeout || 10000,
       success: (res) => {
         const payload = parsePayload(res.data) ?? res.data;
@@ -116,7 +136,7 @@ const uploadFile = (options) => {
       filePath: options.filePath,
       name: options.name || 'file',
       formData: options.formData || {},
-      header: options.header || {},
+      header: buildRequestHeaders(options.header, options.includeUserId !== false),
       timeout: options.timeout || 30000,
       success: (res) => {
         const payload = parsePayload(res.data) ?? res.data;
@@ -147,7 +167,7 @@ const uploadFile = (options) => {
   });
 };
 
-export { BASE_URL, buildServerUrl, formatRequestError, resolveImageUrl };
+export { BASE_URL, buildServerUrl, formatRequestError, request, resolveImageUrl, uploadFile };
 
 export default {
   request,

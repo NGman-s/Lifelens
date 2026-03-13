@@ -35,6 +35,21 @@
 
     <view
       class="nav-item"
+      :class="{ active: current === 'friends' }"
+      @tap="navTo('/pages/friends/friends')"
+    >
+      <view class="icon-container">
+        <uni-icons
+          type="personadd-filled"
+          :size="24"
+          :color="current === 'friends' ? '#007aff' : '#86868b'"
+        ></uni-icons>
+      </view>
+      <text class="nav-label">好友</text>
+    </view>
+
+    <view
+      class="nav-item"
       :class="{ active: current === 'profile' }"
       @tap="navTo('/pages/profile/profile')"
     >

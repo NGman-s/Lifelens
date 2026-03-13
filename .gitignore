@@ -32,7 +32,9 @@ Thumbs.db
 .claude/
 CLAUDE.md
 PRD.md
+.agent/
 
 # Uploads
 backend/uploads/
 backend/temp_images/
+backend/data/

@@ -14,6 +14,7 @@ services:
       - UPLOAD_STORAGE_LIMIT_MB=${UPLOAD_STORAGE_LIMIT_MB:-3072}
     volumes:
       - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/data
     networks:
       - lifelens-network
 

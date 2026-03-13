@@ -16,6 +16,16 @@
 			}
 		},
 		{
+			"path": "pages/friends/friends",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "好友",
+				"navigationBarBackgroundColor": "#F5F5F7",
+				"navigationBarTextStyle": "black",
+				"enablePullDownRefresh": true
+			}
+		},
+		{
 			"path": "pages/profile/profile",
 			"style": {
 				"navigationStyle": "custom",

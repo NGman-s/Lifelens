@@ -1,5 +1,14 @@
 <script>
-export default {};
+import { useUserStore } from '@/store/user';
+
+export default {
+  onLaunch() {
+    const userStore = useUserStore();
+    userStore.initFriendIdentity().catch((error) => {
+      console.warn('Friend identity initialization failed', error);
+    });
+  }
+};
 </script>
 
 <style lang="scss">

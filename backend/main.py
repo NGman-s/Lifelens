@@ -6,8 +6,9 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Header, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +21,14 @@ from services.vision_service import (
     VisionServiceError,
     analyze_food_image,
     generate_alternative_suggestions,
+)
+from utils.db import (
+    add_friend,
+    cleanup_expired_diet_records,
+    get_or_create_user,
+    get_today_friend_feed,
+    init_db,
+    save_diet_record,
 )
 from utils.cleanup import enforce_storage_limit, periodic_cleanup
 
@@ -89,8 +98,27 @@ UPLOAD_STORAGE_LIMIT_MB = _load_int("UPLOAD_STORAGE_LIMIT_MB", 3072)
 UPLOAD_STORAGE_LIMIT_BYTES = UPLOAD_STORAGE_LIMIT_MB * 1024 * 1024
 
 
+async def _periodic_database_cleanup(
+    retention_days: int,
+    stop_event: asyncio.Event,
+    interval_hours: int = 24,
+):
+    while True:
+        try:
+            cleanup_expired_diet_records(retention_days)
+        except Exception:
+            logger.exception("Failed to cleanup expired diet records")
+
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_hours * 3600)
+            break
+        except asyncio.TimeoutError:
+            continue
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     _migrate_legacy_webp_thumbnails()
     stop_event = asyncio.Event()
     cleanup_task = asyncio.create_task(
@@ -102,13 +130,21 @@ async def lifespan(app: FastAPI):
             max_total_size_bytes=UPLOAD_STORAGE_LIMIT_BYTES,
         )
     )
+    database_cleanup_task = asyncio.create_task(
+        _periodic_database_cleanup(
+            retention_days=THUMBNAIL_RETENTION_DAYS,
+            stop_event=stop_event,
+        )
+    )
     app.state.cleanup_stop_event = stop_event
     app.state.cleanup_task = cleanup_task
+    app.state.database_cleanup_task = database_cleanup_task
     try:
         yield
     finally:
         stop_event.set()
         await cleanup_task
+        await database_cleanup_task
 
 
 app = FastAPI(title="LifeLens API", version="1.0.0", lifespan=lifespan)
@@ -233,6 +269,13 @@ def _to_utc_iso(dt):
 
 def _build_image_expiration():
     return _to_utc_iso(datetime.now(timezone.utc) + timedelta(days=THUMBNAIL_RETENTION_DAYS))
+
+
+def _require_user_id(raw_user_id):
+    normalized = str(raw_user_id or "").strip()
+    if not normalized:
+        raise UploadValidationError("缺少用户身份标识", status_code=401)
+    return normalized
 
 
 def _migrate_legacy_webp_thumbnails():
@@ -397,6 +440,24 @@ class AlternativeRequest(BaseModel):
     user_context: dict
 
 
+class UserInitRequest(BaseModel):
+    user_id: str = ""
+
+
+class AddFriendRequest(BaseModel):
+    friend_code: Optional[str] = None
+    target_user_id: Optional[str] = None
+
+
+class DietRecordRequest(BaseModel):
+    main_name: str
+    total_calories: int
+    total_traffic_light: str
+    summary: str
+    image_url: str = ""
+    image_expires_at: str = ""
+
+
 @app.get("/")
 async def root():
     return {"message": "LifeLens API is running"}
@@ -413,6 +474,87 @@ async def health():
         "thumbnail_quality": THUMBNAIL_QUALITY,
         "upload_storage_limit_mb": UPLOAD_STORAGE_LIMIT_MB,
     }
+
+
+@app.post("/api/v1/user/init")
+async def init_user(request: UserInitRequest):
+    trace_id = str(uuid.uuid4())
+    try:
+        payload = get_or_create_user(request.user_id)
+        return JSONResponse(status_code=200, content={"code": 200, "data": payload})
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, trace_id=trace_id)
+    except Exception:
+        logger.exception("Unexpected error during user initialization trace_id=%s", trace_id)
+        return _error_response("初始化用户失败，请稍后重试", 500, trace_id)
+
+
+@app.post("/api/v1/friends/add")
+async def add_friendship(
+    request: AddFriendRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+):
+    trace_id = str(uuid.uuid4())
+    try:
+        current_user_id = _require_user_id(x_user_id)
+        payload = add_friend(
+            current_user_id,
+            friend_code=request.friend_code,
+            target_user_id=request.target_user_id,
+        )
+        return JSONResponse(status_code=200, content={"code": 200, "data": payload})
+    except UploadValidationError as exc:
+        return _error_response(exc.message, status_code=exc.status_code, trace_id=trace_id)
+    except LookupError as exc:
+        return _error_response(str(exc), status_code=404, trace_id=trace_id)
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, trace_id=trace_id)
+    except Exception:
+        logger.exception("Unexpected error during add_friend trace_id=%s", trace_id)
+        return _error_response("添加好友失败，请稍后重试", 500, trace_id)
+
+
+@app.get("/api/v1/friends/feed")
+async def get_friend_feed(x_user_id: Optional[str] = Header(None, alias="X-User-Id")):
+    trace_id = str(uuid.uuid4())
+    try:
+        current_user_id = _require_user_id(x_user_id)
+        payload = get_today_friend_feed(current_user_id)
+        return JSONResponse(status_code=200, content={"code": 200, "data": payload})
+    except UploadValidationError as exc:
+        return _error_response(exc.message, status_code=exc.status_code, trace_id=trace_id)
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, trace_id=trace_id)
+    except Exception:
+        logger.exception("Unexpected error during get_friend_feed trace_id=%s", trace_id)
+        return _error_response("获取好友动态失败，请稍后重试", 500, trace_id)
+
+
+@app.post("/api/v1/diet-records")
+async def create_diet_record(
+    request: DietRecordRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+):
+    trace_id = str(uuid.uuid4())
+    try:
+        current_user_id = _require_user_id(x_user_id)
+        payload = save_diet_record(
+            current_user_id,
+            main_name=request.main_name,
+            total_calories=request.total_calories,
+            total_traffic_light=request.total_traffic_light,
+            summary=request.summary,
+            image_url=request.image_url,
+            image_expires_at=request.image_expires_at,
+        )
+        return JSONResponse(status_code=200, content={"code": 200, "data": payload})
+    except UploadValidationError as exc:
+        return _error_response(exc.message, status_code=exc.status_code, trace_id=trace_id)
+    except ValueError as exc:
+        return _error_response(str(exc), status_code=400, trace_id=trace_id)
+    except Exception:
+        logger.exception("Unexpected error during create_diet_record trace_id=%s", trace_id)
+        return _error_response("保存饮食记录失败，请稍后重试", 500, trace_id)
 
 
 @app.post("/api/v1/vision/analyze")
